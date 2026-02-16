@@ -192,6 +192,44 @@ std::vector<Block> parseHTML(const std::string& html) {
             Tag tag;
             size_t nextPos = parseTag(html, pos, tag);
 
+            // Skip non-visible elements: <style>, <script>, <head>
+            // Their content should not be rendered as text
+            if ((tag.name == "style" || tag.name == "script" || tag.name == "head") && !tag.isClosing) {
+                // Find the matching closing tag and skip everything
+                std::string closingTag = "</" + tag.name;
+                auto closePos = html.find(closingTag, nextPos);
+                if (closePos != std::string::npos) {
+                    auto closeEnd = html.find('>', closePos);
+                    pos = (closeEnd != std::string::npos) ? closeEnd + 1 : closePos + closingTag.size();
+                } else {
+                    pos = nextPos;
+                }
+                continue;
+            }
+
+            // Skip structural/metadata tags that don't produce content
+            if (tag.name == "html" || tag.name == "body" || tag.name == "meta" ||
+                tag.name == "link" || tag.name == "title" || tag.name == "!doctype" ||
+                tag.name == "span" || tag.name == "abbr" || tag.name == "sup" ||
+                tag.name == "sub" || tag.name == "small" || tag.name == "ruby" ||
+                tag.name == "rt" || tag.name == "rp" || tag.name == "table" ||
+                tag.name == "thead" || tag.name == "tbody" || tag.name == "tr" ||
+                tag.name == "td" || tag.name == "th" || tag.name == "header" ||
+                tag.name == "footer" || tag.name == "nav" || tag.name == "aside") {
+                // For container-like structural tags, treat like containers
+                if (!tag.isClosing && (tag.name == "header" || tag.name == "footer" ||
+                    tag.name == "nav" || tag.name == "aside" || tag.name == "table" ||
+                    tag.name == "thead" || tag.name == "tbody" || tag.name == "tr")) {
+                    if (inBlock && !currentBlock.inlines.empty()) {
+                        blocks.push_back(currentBlock);
+                        currentBlock = Block{};
+                        inBlock = false;
+                    }
+                }
+                pos = nextPos;
+                continue;
+            }
+
             // Self-closing / void tags
             if (tag.name == "hr") {
                 if (inBlock && !currentBlock.inlines.empty()) {
