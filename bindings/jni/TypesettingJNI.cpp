@@ -9,6 +9,58 @@
 #define LOG_TAG "TypesettingJNI"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
+/// Create a jstring safely from a UTF-8 std::string.
+/// NewStringUTF requires valid Modified UTF-8; if the C++ engine produces
+/// a string truncated mid-character (e.g., 0xe2 without continuation bytes),
+/// this trims to the last valid character boundary.
+static jstring safeNewStringUTF(JNIEnv *env, const char *str) {
+    if (!str || str[0] == '\0') return env->NewStringUTF("");
+
+    // Validate UTF-8 and find safe length
+    size_t len = 0;
+    size_t safeLen = 0;
+    const unsigned char *p = reinterpret_cast<const unsigned char *>(str);
+    while (p[len]) {
+        unsigned char c = p[len];
+        size_t charBytes;
+        if (c < 0x80) {
+            charBytes = 1;
+        } else if ((c & 0xE0) == 0xC0) {
+            charBytes = 2;
+        } else if ((c & 0xF0) == 0xE0) {
+            charBytes = 3;
+        } else if ((c & 0xF8) == 0xF0) {
+            charBytes = 4;
+        } else {
+            // Invalid lead byte, skip
+            len++;
+            continue;
+        }
+
+        // Check that all continuation bytes are present
+        bool valid = true;
+        for (size_t i = 1; i < charBytes; i++) {
+            if (p[len + i] == 0 || (p[len + i] & 0xC0) != 0x80) {
+                valid = false;
+                break;
+            }
+        }
+
+        if (valid) {
+            len += charBytes;
+            safeLen = len;
+        } else {
+            break; // truncated multi-byte sequence at end
+        }
+    }
+
+    if (safeLen == 0) return env->NewStringUTF("");
+
+    // Use safe length
+    std::string safe(str, safeLen);
+    return env->NewStringUTF(safe.c_str());
+}
+
 // MARK: - Android Platform Adapter (Skia/HarfBuzz)
 
 class AndroidPlatformAdapter : public typesetting::PlatformAdapter {
@@ -31,7 +83,7 @@ public:
     }
 
     typesetting::FontMetrics resolveFontMetrics(const typesetting::FontDescriptor& desc) override {
-        jstring family = env_->NewStringUTF(desc.family.c_str());
+        jstring family = safeNewStringUTF(env_, desc.family.c_str());
         jfloatArray result = (jfloatArray)env_->CallObjectMethod(
             measureHelper_, getFontMetricsMethod_,
             family, desc.size, static_cast<int>(desc.weight));
@@ -51,8 +103,8 @@ public:
 
     typesetting::TextMeasurement measureText(const std::string& text,
                                               const typesetting::FontDescriptor& font) override {
-        jstring jtext = env_->NewStringUTF(text.c_str());
-        jstring jfamily = env_->NewStringUTF(font.family.c_str());
+        jstring jtext = safeNewStringUTF(env_, text.c_str());
+        jstring jfamily = safeNewStringUTF(env_, font.family.c_str());
         float width = env_->CallFloatMethod(
             measureHelper_, measureTextMethod_,
             jtext, jfamily, font.size, static_cast<int>(font.weight));
@@ -66,8 +118,8 @@ public:
     size_t findLineBreak(const std::string& text,
                          const typesetting::FontDescriptor& font,
                          float maxWidth) override {
-        jstring jtext = env_->NewStringUTF(text.c_str());
-        jstring jfamily = env_->NewStringUTF(font.family.c_str());
+        jstring jtext = safeNewStringUTF(env_, text.c_str());
+        jstring jfamily = safeNewStringUTF(env_, font.family.c_str());
         int result = env_->CallIntMethod(
             measureHelper_, findLineBreakMethod_,
             jtext, jfamily, font.size, static_cast<int>(font.weight), maxWidth);
@@ -213,7 +265,7 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
 
     // Build result object
     jobject jResult = env->NewObject(resultClass, resultInit);
-    jstring jChapterId = env->NewStringUTF(result.chapterId.c_str());
+    jstring jChapterId = safeNewStringUTF(env, result.chapterId.c_str());
     env->SetObjectField(jResult, resultChapterIdField, jChapterId);
     env->SetIntField(jResult, resultTotalBlocksField, result.totalBlocks);
     env->DeleteLocalRef(jChapterId);
@@ -243,11 +295,11 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
             for (const auto& run : line.runs) {
                 jobject jRun = env->NewObject(runClass, runInit);
 
-                jstring jText = env->NewStringUTF(run.text.c_str());
+                jstring jText = safeNewStringUTF(env, run.text.c_str());
                 env->SetObjectField(jRun, runTextField, jText);
                 env->DeleteLocalRef(jText);
 
-                jstring jFontFamily = env->NewStringUTF(run.font.family.c_str());
+                jstring jFontFamily = safeNewStringUTF(env, run.font.family.c_str());
                 env->SetObjectField(jRun, runFontFamilyField, jFontFamily);
                 env->DeleteLocalRef(jFontFamily);
 
@@ -264,7 +316,7 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
                 env->SetBooleanField(jRun, runSmallCapsField, run.smallCaps);
                 env->SetBooleanField(jRun, runIsLinkField, run.isLink);
 
-                jstring jHref = env->NewStringUTF(run.href.c_str());
+                jstring jHref = safeNewStringUTF(env, run.href.c_str());
                 env->SetObjectField(jRun, runHrefField, jHref);
                 env->DeleteLocalRef(jHref);
 
