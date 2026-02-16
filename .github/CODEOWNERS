@@ -1,0 +1,14 @@
+# Default owners for everything
+* @readmigo
+
+# Core engine
+/include/ @readmigo
+/src/ @readmigo
+
+# Platform bindings
+/bindings/swift/ @readmigo
+/bindings/jni/ @readmigo
+
+# Build & CI
+/CMakeLists.txt @readmigo
+/.github/ @readmigo

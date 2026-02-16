@@ -1,0 +1,25 @@
+# Auto detect text files and ensure LF line endings
+* text=auto eol=lf
+
+# Source code
+*.h text diff=cpp
+*.cpp text diff=cpp
+*.mm text diff=objcpp
+
+# Build files
+CMakeLists.txt text
+*.cmake text
+
+# Config
+*.yml text
+*.yaml text
+*.json text
+
+# Documentation
+*.md text diff=markdown
+
+# Binary
+*.a binary
+*.so binary
+*.dylib binary
+*.o binary
