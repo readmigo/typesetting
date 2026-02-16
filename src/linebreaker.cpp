@@ -8,9 +8,34 @@ namespace typesetting {
 
 namespace linebreaker {
 
+/// Return the byte length of the UTF-8 character starting at ptr.
+/// Returns 1 for invalid lead bytes (safe fallback).
+static size_t utf8CharLen(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1; // invalid byte, advance by 1
+}
+
+/// Convert a UTF-16 character count to a UTF-8 byte offset.
+static size_t charCountToByteOffset(const std::string& text, size_t charCount) {
+    size_t bytePos = 0;
+    size_t chars = 0;
+    while (bytePos < text.size() && chars < charCount) {
+        size_t len = utf8CharLen(static_cast<unsigned char>(text[bytePos]));
+        // Ensure we don't read past the string
+        if (bytePos + len > text.size()) break;
+        bytePos += len;
+        // A 4-byte UTF-8 char maps to 2 UTF-16 chars (surrogate pair)
+        chars += (len == 4) ? 2 : 1;
+    }
+    return bytePos;
+}
+
 /// A candidate break point in the text
 struct BreakPoint {
-    size_t charIndex = 0;     // Character index in the text
+    size_t charIndex = 0;     // Byte index in the text
     float widthBefore = 0;    // Total width up to this point
     bool isHyphen = false;    // Whether this break requires a hyphen
 };
@@ -22,19 +47,26 @@ std::vector<BreakPoint> findBreakPoints(const std::string& text,
     std::vector<BreakPoint> points;
     float currentWidth = 0;
 
-    for (size_t i = 0; i < text.size(); ++i) {
+    size_t i = 0;
+    while (i < text.size()) {
+        size_t charLen = utf8CharLen(static_cast<unsigned char>(text[i]));
+        if (i + charLen > text.size()) break; // incomplete character at end
+
+        size_t nextI = i + charLen;
         char c = text[i];
-        auto measurement = platform.measureText(text.substr(0, i + 1), font);
+        auto measurement = platform.measureText(text.substr(0, nextI), font);
         currentWidth = measurement.width;
 
-        // Space is always a valid break point
+        // Space is always a valid break point (ASCII, single byte)
         if (c == ' ' || c == '\t') {
-            points.push_back({i + 1, currentWidth, false});
+            points.push_back({nextI, currentWidth, false});
         }
         // Existing hyphen is a valid break point
-        else if (c == '-' && i > 0 && i < text.size() - 1) {
-            points.push_back({i + 1, currentWidth, false});
+        else if (c == '-' && i > 0 && nextI < text.size()) {
+            points.push_back({nextI, currentWidth, false});
         }
+
+        i = nextI;
     }
 
     return points;

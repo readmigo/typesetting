@@ -120,12 +120,29 @@ public:
                          float maxWidth) override {
         jstring jtext = safeNewStringUTF(env_, text.c_str());
         jstring jfamily = safeNewStringUTF(env_, font.family.c_str());
-        int result = env_->CallIntMethod(
+        int charCount = env_->CallIntMethod(
             measureHelper_, findLineBreakMethod_,
             jtext, jfamily, font.size, static_cast<int>(font.weight), maxWidth);
         env_->DeleteLocalRef(jtext);
         env_->DeleteLocalRef(jfamily);
-        return static_cast<size_t>(result);
+
+        // Convert Java character count (UTF-16) to C++ byte offset (UTF-8)
+        size_t byteOffset = 0;
+        int chars = 0;
+        const unsigned char *p = reinterpret_cast<const unsigned char *>(text.c_str());
+        while (byteOffset < text.size() && chars < charCount) {
+            unsigned char c = p[byteOffset];
+            size_t len;
+            if (c < 0x80) len = 1;
+            else if ((c & 0xE0) == 0xC0) len = 2;
+            else if ((c & 0xF0) == 0xE0) len = 3;
+            else if ((c & 0xF8) == 0xF0) { len = 4; chars++; } // surrogate pair = 2 UTF-16 chars
+            else len = 1;
+            if (byteOffset + len > text.size()) break;
+            byteOffset += len;
+            chars++;
+        }
+        return byteOffset;
     }
 
     bool supportsHyphenation(const std::string& locale) override {

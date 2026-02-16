@@ -349,8 +349,14 @@ private:
                     if (breakPos == 0) {
                         // Nothing fits
                         if (currentLine.runs.empty() && lineX <= bstyle.textIndent + 0.001f) {
-                            // Line is empty — force at least one character
-                            breakPos = 1;
+                            // Line is empty — force at least one UTF-8 character
+                            unsigned char lead = static_cast<unsigned char>(remaining[0]);
+                            if (lead < 0x80) breakPos = 1;
+                            else if ((lead & 0xE0) == 0xC0) breakPos = 2;
+                            else if ((lead & 0xF0) == 0xE0) breakPos = 3;
+                            else if ((lead & 0xF8) == 0xF0) breakPos = 4;
+                            else breakPos = 1;
+                            if (breakPos > remaining.size()) breakPos = remaining.size();
                         } else {
                             // Complete current line and start a new one
                             completeLine(false);
