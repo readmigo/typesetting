@@ -336,3 +336,137 @@ TEST(StyleResolverTest, HeadingFontSizePreserved) {
     // Heading1 = 1.5x user font size
     EXPECT_FLOAT_EQ(styles[0].font.size, 30.0f);
 }
+
+// =============================================================================
+// MARK: - Figcaption Default Style Tests
+// =============================================================================
+
+TEST(StyleResolverTest, FigcaptionDefaultStyle) {
+    CSSStylesheet sheet;
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Figcaption;
+    block.htmlTag = "figcaption";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    // User alignment overrides figcaption's center; verify other properties
+    userStyle.alignment = TextAlignment::Justified;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+
+    // Figcaption: small text (0.85x), italic, no indent
+    EXPECT_FLOAT_EQ(styles[0].font.size, 16.0f * 0.85f);
+    EXPECT_EQ(styles[0].font.style, FontStyle::Italic);
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
+    EXPECT_FALSE(styles[0].hyphens);
+    // Note: user alignment overrides the default center alignment
+    // (only headings preserve center alignment through user overrides)
+    EXPECT_EQ(styles[0].alignment, TextAlignment::Justified);
+}
+
+TEST(StyleResolverTest, FigcaptionFontSizePreserved) {
+    // Figcaption font size should NOT be overridden by user font size
+    CSSStylesheet sheet;
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Figcaption;
+    block.htmlTag = "figcaption";
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // Should be 0.85 * 20 = 17, not overridden to 20
+    EXPECT_FLOAT_EQ(styles[0].font.size, 20.0f * 0.85f);
+}
+
+// =============================================================================
+// MARK: - Table Default Style Tests
+// =============================================================================
+
+TEST(StyleResolverTest, TableDefaultStyle) {
+    CSSStylesheet sheet;
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Table;
+    block.htmlTag = "table";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    userStyle.alignment = TextAlignment::Justified;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+
+    // Table: no indent, no hyphens
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
+    EXPECT_FALSE(styles[0].hyphens);
+    // Table margins: 1em top and bottom
+    EXPECT_FLOAT_EQ(styles[0].marginTop, 16.0f);
+    EXPECT_FLOAT_EQ(styles[0].marginBottom, 16.0f);
+    // Note: user alignment overrides the default left alignment
+    // (only headings preserve alignment through user overrides)
+    EXPECT_EQ(styles[0].alignment, TextAlignment::Justified);
+}
+
+// =============================================================================
+// MARK: - ListItem Default Style Tests
+// =============================================================================
+
+TEST(StyleResolverTest, ListItemDefaultStyle) {
+    CSSStylesheet sheet;
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::ListItem;
+    block.htmlTag = "li";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+
+    // ListItem: left margin 2em, justified, hyphens on
+    EXPECT_FLOAT_EQ(styles[0].marginLeft, 32.0f);  // 2.0 * 16
+    EXPECT_EQ(styles[0].alignment, TextAlignment::Justified);
+    EXPECT_TRUE(styles[0].hyphens);
+}
+
+// =============================================================================
+// MARK: - Hanging Punctuation CSS Tests
+// =============================================================================
+
+TEST(StyleResolverTest, HangingPunctuationFromCSS) {
+    auto sheet = CSSStylesheet::parse("p { hanging-punctuation: first; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_TRUE(styles[0].hangingPunctuation);
+}
+
+TEST(StyleResolverTest, HangingPunctuationDisabledByDefault) {
+    CSSStylesheet sheet;
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FALSE(styles[0].hangingPunctuation);
+}

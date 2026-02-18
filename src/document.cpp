@@ -117,6 +117,7 @@ BlockType tagToBlockType(const std::string& tagName) {
     if (tagName == "pre") return BlockType::CodeBlock;
     if (tagName == "hr") return BlockType::HorizontalRule;
     if (tagName == "li") return BlockType::ListItem;
+    if (tagName == "figcaption") return BlockType::Figcaption;
     return BlockType::Paragraph;
 }
 
@@ -132,7 +133,7 @@ bool isBlockTag(const std::string& name) {
            name == "h4" || name == "h5" || name == "h6" ||
            name == "blockquote" || name == "pre" || name == "li" ||
            name == "div" || name == "section" || name == "article" ||
-           name == "figure" || name == "hr";
+           name == "figure" || name == "figcaption" || name == "hr";
 }
 
 /// Check if tag is an inline formatting element
@@ -207,19 +208,131 @@ std::vector<Block> parseHTML(const std::string& html) {
                 continue;
             }
 
+            // Handle <table>: parse into a Table block
+            if (tag.name == "table" && !tag.isClosing) {
+                if (inBlock && !currentBlock.inlines.empty()) {
+                    blocks.push_back(currentBlock);
+                    currentBlock = Block{};
+                    inBlock = false;
+                }
+
+                // Find the closing </table> and extract inner HTML
+                std::string closeTag = "</table>";
+                auto tableEnd = html.find(closeTag, nextPos);
+                if (tableEnd == std::string::npos) {
+                    tableEnd = html.size();
+                }
+                std::string tableHTML = html.substr(nextPos, tableEnd - nextPos);
+
+                // Parse table content into rows and cells
+                Block tableBlock;
+                tableBlock.type = BlockType::Table;
+                populateBlockMeta(tableBlock, "table", tag);
+
+                // Simple table parser: scan for tr/td/th tags
+                size_t tpos = 0;
+                TableRow currentRow;
+                TableCell currentCell;
+                bool inRow = false;
+                bool inCell = false;
+                InlineType cellInline = InlineType::Text;
+                std::string cellInlineRaw;
+
+                while (tpos < tableHTML.size()) {
+                    if (tableHTML[tpos] == '<') {
+                        Tag ttag;
+                        size_t tnextPos = parseTag(tableHTML, tpos, ttag);
+
+                        if (ttag.name == "tr" && !ttag.isClosing) {
+                            currentRow = TableRow{};
+                            inRow = true;
+                        } else if (ttag.name == "tr" && ttag.isClosing) {
+                            if (inCell) {
+                                currentRow.cells.push_back(currentCell);
+                                currentCell = TableCell{};
+                                inCell = false;
+                            }
+                            if (inRow) {
+                                tableBlock.tableRows.push_back(currentRow);
+                                currentRow = TableRow{};
+                                inRow = false;
+                            }
+                        } else if ((ttag.name == "td" || ttag.name == "th") && !ttag.isClosing) {
+                            if (inCell) {
+                                currentRow.cells.push_back(currentCell);
+                            }
+                            currentCell = TableCell{};
+                            currentCell.isHeader = (ttag.name == "th");
+                            std::string colspanStr = ttag.getAttribute("colspan");
+                            if (!colspanStr.empty()) {
+                                try { currentCell.colspan = std::stoi(colspanStr); }
+                                catch (...) { currentCell.colspan = 1; }
+                            }
+                            inCell = true;
+                            cellInline = InlineType::Text;
+                            cellInlineRaw.clear();
+                        } else if ((ttag.name == "td" || ttag.name == "th") && ttag.isClosing) {
+                            if (inCell) {
+                                currentRow.cells.push_back(currentCell);
+                                currentCell = TableCell{};
+                                inCell = false;
+                            }
+                            cellInline = InlineType::Text;
+                            cellInlineRaw.clear();
+                        } else if (inCell) {
+                            // Inline formatting within cells
+                            if (!ttag.isClosing) {
+                                cellInline = tagToInlineType(ttag.name);
+                                cellInlineRaw = ttag.raw;
+                            } else {
+                                cellInline = InlineType::Text;
+                                cellInlineRaw.clear();
+                            }
+                        }
+                        tpos = tnextPos;
+                    } else {
+                        // Text content
+                        auto nextTag = tableHTML.find('<', tpos);
+                        if (nextTag == std::string::npos) nextTag = tableHTML.size();
+                        std::string text = tableHTML.substr(tpos, nextTag - tpos);
+                        text = decodeEntities(text);
+                        std::string trimmed = trim(text);
+                        if (!trimmed.empty() && inCell) {
+                            InlineElement el;
+                            el.type = cellInline;
+                            el.text = trimmed;
+                            currentCell.inlines.push_back(el);
+                        }
+                        tpos = nextTag;
+                    }
+                }
+                // Flush any remaining cell/row
+                if (inCell) {
+                    currentRow.cells.push_back(currentCell);
+                }
+                if (inRow && !currentRow.cells.empty()) {
+                    tableBlock.tableRows.push_back(currentRow);
+                }
+
+                blocks.push_back(tableBlock);
+
+                // Skip past </table>
+                pos = (tableEnd < html.size()) ? tableEnd + closeTag.size() : html.size();
+                continue;
+            }
+
             // Skip structural/metadata tags that don't produce content
             if (tag.name == "html" || tag.name == "body" || tag.name == "meta" ||
                 tag.name == "link" || tag.name == "title" || tag.name == "!doctype" ||
                 tag.name == "span" || tag.name == "abbr" || tag.name == "sup" ||
                 tag.name == "sub" || tag.name == "small" || tag.name == "ruby" ||
-                tag.name == "rt" || tag.name == "rp" || tag.name == "table" ||
-                tag.name == "thead" || tag.name == "tbody" || tag.name == "tr" ||
-                tag.name == "td" || tag.name == "th" || tag.name == "header" ||
+                tag.name == "rt" || tag.name == "rp" ||
+                tag.name == "thead" || tag.name == "tbody" ||
+                tag.name == "header" ||
                 tag.name == "footer" || tag.name == "nav" || tag.name == "aside") {
                 // For container-like structural tags, treat like containers
                 if (!tag.isClosing && (tag.name == "header" || tag.name == "footer" ||
-                    tag.name == "nav" || tag.name == "aside" || tag.name == "table" ||
-                    tag.name == "thead" || tag.name == "tbody" || tag.name == "tr")) {
+                    tag.name == "nav" || tag.name == "aside")) {
                     if (inBlock && !currentBlock.inlines.empty()) {
                         blocks.push_back(currentBlock);
                         currentBlock = Block{};
@@ -387,6 +500,13 @@ std::vector<Block> parseHTML(const std::string& html) {
                     el.lang = dummyTag.getAttribute("lang");
                     el.className = dummyTag.getAttribute("class");
                     el.epubType = dummyTag.getAttribute("epub:type");
+
+                    // Detect footnote references: <a epub:type="noteref" href="#...">
+                    if (currentInline == InlineType::Link &&
+                        el.epubType.find("noteref") != std::string::npos) {
+                        el.isFootnoteRef = true;
+                        el.footnoteId = dummyTag.getAttribute("href");
+                    }
                 }
 
                 currentBlock.inlines.push_back(el);

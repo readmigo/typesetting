@@ -25,6 +25,7 @@ struct TextRun {
     bool smallCaps = false;    // Render with small-caps variant
     bool isLink = false;       // This run is a hyperlink
     std::string href;          // Link target URL
+    bool isSuperscript = false; // Render as superscript (footnote refs)
 };
 
 /// A laid-out line on a page
@@ -44,6 +45,8 @@ struct Line {
 /// Types of visual decorations on a page
 enum class DecorationType {
     HorizontalRule,
+    ImagePlaceholder,
+    TableBorder,
 };
 
 /// A visual decoration element on a page (non-text)
@@ -53,6 +56,8 @@ struct Decoration {
     float y = 0;
     float width = 0;
     float height = 0;
+    std::string imageSrc;  // For ImagePlaceholder
+    std::string imageAlt;  // For ImagePlaceholder
 };
 
 /// A single laid-out page
@@ -76,11 +81,20 @@ struct Page {
     int lastBlockIndex = -1;    // Last block that appears on this page
 };
 
+/// Warning types that may occur during layout
+enum class LayoutWarning {
+    None,
+    EmptyContent,
+    ParseError,
+    LayoutOverflow,
+};
+
 /// Result of laying out an entire chapter
 struct LayoutResult {
     std::string chapterId;
     std::vector<Page> pages;
     int totalBlocks = 0;
+    std::vector<LayoutWarning> warnings;
 };
 
 } // namespace typesetting

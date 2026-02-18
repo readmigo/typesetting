@@ -21,6 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL smallCaps;
 @property (nonatomic, assign) BOOL isLink;
 @property (nonatomic, copy, nullable) NSString *href;
+@property (nonatomic, assign) BOOL isSuperscript;
 @end
 
 /// A laid-out line
@@ -33,13 +34,15 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) BOOL isLastLineOfParagraph;
 @end
 
-/// A visual decoration element (e.g., horizontal rule)
+/// A visual decoration element (e.g., horizontal rule, image placeholder, table border)
 @interface TSDecoration : NSObject
-@property (nonatomic, assign) NSInteger type;  // 0 = HorizontalRule
+@property (nonatomic, assign) NSInteger type;  // 0 = HorizontalRule, 1 = ImagePlaceholder, 2 = TableBorder
 @property (nonatomic, assign) CGFloat x;
 @property (nonatomic, assign) CGFloat y;
 @property (nonatomic, assign) CGFloat width;
 @property (nonatomic, assign) CGFloat height;
+@property (nonatomic, copy, nullable) NSString *imageSrc;  // For ImagePlaceholder
+@property (nonatomic, copy, nullable) NSString *imageAlt;  // For ImagePlaceholder
 @end
 
 /// A laid-out page
@@ -58,6 +61,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, copy) NSString *chapterId;
 @property (nonatomic, strong) NSArray<TSPage *> *pages;
 @property (nonatomic, assign) NSInteger totalBlocks;
+@property (nonatomic, strong) NSArray<NSNumber *> *warnings;  // LayoutWarning values (0=None, 1=EmptyContent, 2=ParseError, 3=LayoutOverflow)
 @end
 
 /// Style configuration
@@ -78,8 +82,17 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) CGFloat marginRight;
 @end
 
+/// Protocol for providing image dimensions to the typesetting engine
+@protocol TSImageSizeProvider <NSObject>
+/// Return the natural size of an image, or nil if unknown.
+/// The CGSize should be wrapped in an NSValue.
+- (nullable NSValue *)imageSizeForSource:(NSString *)src;
+@end
+
 /// Main bridge to the C++ typesetting engine
 @interface TypesettingBridge : NSObject
+
+@property (nonatomic, weak, nullable) id<TSImageSizeProvider> imageSizeProvider;
 
 - (instancetype)init;
 

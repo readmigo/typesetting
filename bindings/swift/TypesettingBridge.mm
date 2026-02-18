@@ -10,6 +10,8 @@
 
 class CoreTextAdapter : public typesetting::PlatformAdapter {
 public:
+    __weak id<TSImageSizeProvider> imageSizeProvider = nil;
+
     typesetting::FontMetrics resolveFontMetrics(const typesetting::FontDescriptor& desc) override {
         CTFontRef font = createCTFont(desc);
         typesetting::FontMetrics metrics;
@@ -78,6 +80,16 @@ public:
                                                const std::string& locale) override {
         // TODO: Implement using CFStringGetHyphenationLocationBeforeIndex
         return {};
+    }
+
+    std::optional<typesetting::ImageSize> getImageSize(const std::string& src) override {
+        id<TSImageSizeProvider> provider = imageSizeProvider;
+        if (!provider) return std::nullopt;
+        NSString *nsSrc = [NSString stringWithUTF8String:src.c_str()];
+        NSValue *sizeValue = [provider imageSizeForSource:nsSrc];
+        if (!sizeValue) return std::nullopt;
+        CGSize size = [sizeValue CGSizeValue];
+        return typesetting::ImageSize{static_cast<float>(size.width), static_cast<float>(size.height)};
     }
 
 private:
@@ -158,6 +170,7 @@ private:
 
 @interface TypesettingBridge () {
     std::unique_ptr<typesetting::Engine> _engine;
+    std::shared_ptr<CoreTextAdapter> _adapter;
 }
 @end
 
@@ -166,10 +179,15 @@ private:
 - (instancetype)init {
     self = [super init];
     if (self) {
-        auto platform = std::make_shared<CoreTextAdapter>();
-        _engine = std::make_unique<typesetting::Engine>(platform);
+        _adapter = std::make_shared<CoreTextAdapter>();
+        _engine = std::make_unique<typesetting::Engine>(_adapter);
     }
     return self;
+}
+
+- (void)setImageSizeProvider:(id<TSImageSizeProvider>)imageSizeProvider {
+    _imageSizeProvider = imageSizeProvider;
+    _adapter->imageSizeProvider = imageSizeProvider;
 }
 
 - (typesetting::Style)convertStyle:(TSStyle *)style {
@@ -232,6 +250,7 @@ private:
                 if (!run.href.empty()) {
                     tsRun.href = [NSString stringWithUTF8String:run.href.c_str()];
                 }
+                tsRun.isSuperscript = run.isSuperscript;
                 [runs addObject:tsRun];
             }
             tsLine.runs = runs;
@@ -247,6 +266,12 @@ private:
             tsDeco.y = deco.y;
             tsDeco.width = deco.width;
             tsDeco.height = deco.height;
+            if (!deco.imageSrc.empty()) {
+                tsDeco.imageSrc = [NSString stringWithUTF8String:deco.imageSrc.c_str()];
+            }
+            if (!deco.imageAlt.empty()) {
+                tsDeco.imageAlt = [NSString stringWithUTF8String:deco.imageAlt.c_str()];
+            }
             [decorations addObject:tsDeco];
         }
         tsPage.decorations = decorations;
@@ -254,6 +279,13 @@ private:
         [pages addObject:tsPage];
     }
     tsResult.pages = pages;
+
+    NSMutableArray<NSNumber *> *warnings = [NSMutableArray arrayWithCapacity:result.warnings.size()];
+    for (const auto& w : result.warnings) {
+        [warnings addObject:@(static_cast<NSInteger>(w))];
+    }
+    tsResult.warnings = warnings;
+
     return tsResult;
 }
 

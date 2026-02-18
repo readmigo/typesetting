@@ -43,6 +43,8 @@ std::string blockTypeToTag(BlockType type) {
         case BlockType::Image:         return "img";
         case BlockType::HorizontalRule:return "hr";
         case BlockType::ListItem:      return "li";
+        case BlockType::Figcaption:    return "figcaption";
+        case BlockType::Table:         return "table";
     }
     return "";
 }
@@ -189,6 +191,23 @@ BlockComputedStyle StyleResolver::defaultStyleForBlock(
 
         case BlockType::Image:
             style.textIndent = 0;
+            break;
+
+        case BlockType::Figcaption:
+            style.font.size = em * 0.85f;
+            style.font.style = FontStyle::Italic;
+            style.alignment = TextAlignment::Center;
+            style.textIndent = 0;
+            style.marginTop = 0.5f * em;
+            style.hyphens = false;
+            break;
+
+        case BlockType::Table:
+            style.textIndent = 0;
+            style.alignment = TextAlignment::Left;
+            style.hyphens = false;
+            style.marginTop = 1.0f * em;
+            style.marginBottom = 1.0f * em;
             break;
     }
 
@@ -346,7 +365,8 @@ void StyleResolver::applyUserOverrides(
     // Font size: don't override for headings (they should remain proportionally larger)
     // or for CodeBlock (should remain proportionally smaller).
     // The base font size was already used in em conversion.
-    if (!isHeadingType(block.type) && block.type != BlockType::CodeBlock) {
+    if (!isHeadingType(block.type) && block.type != BlockType::CodeBlock &&
+        block.type != BlockType::Figcaption) {
         style.font.size = userStyle.font.size;
     }
 

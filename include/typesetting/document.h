@@ -26,6 +26,8 @@ struct InlineElement {
     std::string lang;       // <i lang="lt"> language attribute
     std::string className;  // inline element's class
     std::string epubType;   // <abbr epub:type="z3998:name-title">
+    bool isFootnoteRef = false;   // This inline is a footnote reference marker
+    std::string footnoteId;        // Target footnote ID
 
     static InlineElement plain(const std::string& t) {
         return {InlineType::Text, t, {}, {}, {}, {}};
@@ -56,6 +58,20 @@ enum class BlockType {
     Image,
     HorizontalRule,
     ListItem,
+    Figcaption,
+    Table,
+};
+
+/// A single cell in a table
+struct TableCell {
+    std::vector<InlineElement> inlines;
+    int colspan = 1;
+    bool isHeader = false;
+};
+
+/// A row in a table
+struct TableRow {
+    std::vector<TableCell> cells;
 };
 
 /// A block-level element in the document
@@ -66,6 +82,7 @@ struct Block {
     std::string alt;                      // For Image: alt text
     std::string caption;                  // For Image: caption
     int listIndex = -1;                   // For ListItem: ordered list index (-1 = unordered)
+    std::vector<TableRow> tableRows;      // For Table type
 
     // Metadata for CSS selector matching
     std::string className;                // HTML class attribute value

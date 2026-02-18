@@ -2,9 +2,16 @@
 
 #include <string>
 #include <vector>
+#include <optional>
 #include <cstdint>
 
 namespace typesetting {
+
+/// Image dimensions returned by platform
+struct ImageSize {
+    float width = 0;
+    float height = 0;
+};
 
 /// Font weight values matching CSS font-weight
 enum class FontWeight : uint16_t {
@@ -76,6 +83,12 @@ public:
     /// Returns valid break positions (character indices).
     virtual std::vector<size_t> findHyphenationPoints(const std::string& word,
                                                       const std::string& locale) = 0;
+
+    /// Get the natural dimensions of an image.
+    /// Returns nullopt if the image is not available or dimensions unknown.
+    virtual std::optional<ImageSize> getImageSize(const std::string& src) {
+        return std::nullopt;
+    }
 };
 
 } // namespace typesetting

@@ -144,11 +144,179 @@ private:
 
             // Handle image blocks
             if (block.type == BlockType::Image) {
-                float imageHeight = contentWidth * 0.6f;
-                if (cursorY + imageHeight > contentHeight) {
+                float imageWidth = contentWidth;
+                float imageHeight = contentWidth * 0.6f;  // Default placeholder ratio
+
+                // Try to get actual image dimensions from platform
+                auto imgSize = platform_->getImageSize(block.src);
+                if (imgSize.has_value() && imgSize->width > 0 && imgSize->height > 0) {
+                    float scale = contentWidth / imgSize->width;
+                    imageWidth = contentWidth;
+                    imageHeight = imgSize->height * scale;
+                }
+
+                if (cursorY + imageHeight > contentHeight && !currentPage.lines.empty()) {
                     startNewPage(blockIdx);
                 }
-                cursorY += imageHeight + bstyle.paragraphSpacingAfter;
+
+                // Create image placeholder decoration
+                Decoration imgDeco;
+                imgDeco.type = DecorationType::ImagePlaceholder;
+                imgDeco.x = contentX;
+                imgDeco.y = contentY + cursorY;
+                imgDeco.width = imageWidth;
+                imgDeco.height = imageHeight;
+                imgDeco.imageSrc = block.src;
+                imgDeco.imageAlt = block.alt;
+                currentPage.decorations.push_back(imgDeco);
+
+                cursorY += imageHeight;
+
+                // If there's a caption, lay it out as text below the image
+                if (!block.caption.empty()) {
+                    float captionSpacing = bstyle.font.size * 0.5f;
+                    cursorY += captionSpacing;
+
+                    // Create a temporary block for the caption
+                    Block captionBlock;
+                    captionBlock.type = BlockType::Figcaption;
+                    captionBlock.inlines.push_back(InlineElement::plain(block.caption));
+
+                    BlockComputedStyle captionStyle = bstyle;
+                    captionStyle.font.size = bstyle.font.size * 0.85f;
+                    captionStyle.font.style = FontStyle::Italic;
+                    captionStyle.alignment = TextAlignment::Center;
+                    captionStyle.textIndent = 0;
+
+                    auto captionLines = layoutBlockLines(captionBlock, captionStyle, contentWidth, blockIdx);
+                    for (auto& line : captionLines) {
+                        if (cursorY + line.height > contentHeight && !currentPage.lines.empty()) {
+                            startNewPage(blockIdx);
+                        }
+                        line.y = contentY + cursorY + line.ascent;
+                        line.x = contentX;
+                        applyAlignment(line, captionStyle.alignment, contentWidth);
+                        for (auto& run : line.runs) {
+                            run.x += contentX;
+                            run.y = line.y;
+                        }
+                        currentPage.lines.push_back(line);
+                        cursorY += line.height;
+                    }
+                }
+
+                cursorY += bstyle.paragraphSpacingAfter;
+                continue;
+            }
+
+            // Handle table blocks
+            if (block.type == BlockType::Table) {
+                if (!block.tableRows.empty()) {
+                    float tableMarginTop = bstyle.font.size;
+                    float tableMarginBottom = bstyle.font.size;
+                    cursorY += tableMarginTop;
+
+                    // Determine number of columns
+                    int maxCols = 0;
+                    for (const auto& row : block.tableRows) {
+                        int rowCols = 0;
+                        for (const auto& cell : row.cells) {
+                            rowCols += cell.colspan;
+                        }
+                        if (rowCols > maxCols) maxCols = rowCols;
+                    }
+                    if (maxCols == 0) maxCols = 1;
+
+                    float cellWidth = contentWidth / static_cast<float>(maxCols);
+                    float cellPadding = bstyle.font.size * 0.3f;
+                    float tableBorderWidth = 1.0f;
+
+                    // Draw outer table border
+                    float tableStartY = contentY + cursorY;
+
+                    // Layout each row
+                    for (const auto& row : block.tableRows) {
+                        float rowHeight = 0;
+                        float cellX = 0;
+
+                        // First pass: calculate row height
+                        for (const auto& cell : row.cells) {
+                            float thisCellWidth = cellWidth * cell.colspan - cellPadding * 2;
+                            if (thisCellWidth < 1) thisCellWidth = 1;
+
+                            Block cellBlock;
+                            cellBlock.type = BlockType::Paragraph;
+                            cellBlock.inlines = cell.inlines;
+
+                            BlockComputedStyle cellStyle = bstyle;
+                            cellStyle.textIndent = 0;
+                            cellStyle.alignment = TextAlignment::Left;
+                            if (cell.isHeader) {
+                                cellStyle.font.weight = FontWeight::Bold;
+                            }
+
+                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, thisCellWidth, blockIdx);
+                            float cellHeight = cellPadding * 2;
+                            for (const auto& cl : cellLines) {
+                                cellHeight += cl.height;
+                            }
+                            if (cellHeight > rowHeight) rowHeight = cellHeight;
+                        }
+
+                        // Check page break
+                        if (cursorY + rowHeight > contentHeight && !currentPage.lines.empty()) {
+                            startNewPage(blockIdx);
+                        }
+
+                        // Second pass: place cell content
+                        cellX = 0;
+                        for (const auto& cell : row.cells) {
+                            float thisCellWidth = cellWidth * cell.colspan - cellPadding * 2;
+                            if (thisCellWidth < 1) thisCellWidth = 1;
+
+                            Block cellBlock;
+                            cellBlock.type = BlockType::Paragraph;
+                            cellBlock.inlines = cell.inlines;
+
+                            BlockComputedStyle cellStyle = bstyle;
+                            cellStyle.textIndent = 0;
+                            cellStyle.alignment = TextAlignment::Left;
+                            if (cell.isHeader) {
+                                cellStyle.font.weight = FontWeight::Bold;
+                            }
+
+                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, thisCellWidth, blockIdx);
+                            float cellCursorY = cursorY + cellPadding;
+
+                            for (auto& line : cellLines) {
+                                line.y = contentY + cellCursorY + line.ascent;
+                                line.x = contentX + cellX + cellPadding;
+                                applyAlignment(line, cellStyle.alignment, thisCellWidth);
+                                for (auto& run : line.runs) {
+                                    run.x += contentX + cellX + cellPadding;
+                                    run.y = line.y;
+                                }
+                                currentPage.lines.push_back(line);
+                                cellCursorY += line.height;
+                            }
+
+                            // Cell border decoration
+                            Decoration cellBorder;
+                            cellBorder.type = DecorationType::TableBorder;
+                            cellBorder.x = contentX + cellX;
+                            cellBorder.y = contentY + cursorY;
+                            cellBorder.width = cellWidth * cell.colspan;
+                            cellBorder.height = rowHeight;
+                            currentPage.decorations.push_back(cellBorder);
+
+                            cellX += cellWidth * cell.colspan;
+                        }
+
+                        cursorY += rowHeight;
+                    }
+
+                    cursorY += tableMarginBottom;
+                }
                 continue;
             }
 
@@ -186,6 +354,10 @@ private:
                 for (auto& run : line.runs) {
                     run.x += contentX + blockOffsetX;
                     run.y = line.y;
+                    // Superscript: shift baseline up by 30% of ascent
+                    if (run.isSuperscript) {
+                        run.y -= line.ascent * 0.3f;
+                    }
                 }
 
                 currentPage.lines.push_back(line);
@@ -201,6 +373,11 @@ private:
         if (!currentPage.lines.empty() || !currentPage.decorations.empty()) {
             currentPage.lastBlockIndex = static_cast<int>(chapter.blocks.size()) - 1;
             result.pages.push_back(currentPage);
+        }
+
+        // Detect layout overflow: if page count is unreasonably high relative to content
+        if (result.totalBlocks > 0 && static_cast<int>(result.pages.size()) > result.totalBlocks * 50) {
+            result.warnings.push_back(LayoutWarning::LayoutOverflow);
         }
 
         return result;
@@ -222,6 +399,21 @@ private:
         float maxAscent = baseMetrics.ascent;
         float maxDescent = baseMetrics.descent;
 
+        // List bullet/number marker
+        float markerWidth = 0;
+        std::string markerText;
+        if (block.type == BlockType::ListItem) {
+            if (block.listIndex < 0) {
+                // Unordered list: bullet
+                markerText = "\xe2\x80\xa2 ";  // "• "
+            } else {
+                // Ordered list: number
+                markerText = std::to_string(block.listIndex + 1) + ". ";
+            }
+            auto markerMeasure = platform_->measureText(markerText, bstyle.font);
+            markerWidth = markerMeasure.width;
+        }
+
         // Line building state
         Line currentLine;
         float lineX = 0;
@@ -234,6 +426,21 @@ private:
             effectiveWidth = availableWidth - bstyle.textIndent;
         }
 
+        // For list items, place the marker on the first line and indent subsequent text
+        if (block.type == BlockType::ListItem && markerWidth > 0) {
+            TextRun markerRun;
+            markerRun.text = markerText;
+            markerRun.font = bstyle.font;
+            markerRun.x = lineX;
+            markerRun.width = markerWidth;
+            markerRun.blockIndex = blockIndex;
+            markerRun.inlineIndex = -1;
+            markerRun.charOffset = 0;
+            markerRun.charLength = static_cast<int>(markerText.size());
+            currentLine.runs.push_back(markerRun);
+            lineX += markerWidth;
+        }
+
         auto completeLine = [&](bool isLastOfParagraph) {
             currentLine.isLastLineOfParagraph = isLastOfParagraph;
             currentLine.width = lineX;
@@ -242,9 +449,15 @@ private:
             currentLine.descent = maxDescent;
             lines.push_back(std::move(currentLine));
             currentLine = Line{};
-            lineX = 0;
             isFirstLine = false;
-            effectiveWidth = availableWidth;
+            // For list items, subsequent lines indent to align with text after marker
+            if (block.type == BlockType::ListItem && markerWidth > 0) {
+                lineX = markerWidth;
+                effectiveWidth = availableWidth - markerWidth;
+            } else {
+                lineX = 0;
+                effectiveWidth = availableWidth;
+            }
             // Reset per-line max metrics
             maxAscent = baseMetrics.ascent;
             maxDescent = baseMetrics.descent;
@@ -257,6 +470,7 @@ private:
             FontDescriptor inlineFont = bstyle.font;
             bool runSmallCaps = bstyle.smallCaps;
             bool runIsLink = false;
+            bool runIsSuperscript = false;
             std::string runHref;
 
             switch (inl.type) {
@@ -280,6 +494,12 @@ private:
                     runIsLink = true;
                     runHref = inl.href;
                     break;
+            }
+
+            // Footnote reference: use smaller font and superscript positioning
+            if (inl.isFootnoteRef) {
+                inlineFont.size = bstyle.font.size * 0.7f;
+                runIsSuperscript = true;
             }
 
             // Get metrics for this inline's font
@@ -337,6 +557,7 @@ private:
                     run.smallCaps = runSmallCaps;
                     run.isLink = runIsLink;
                     run.href = runHref;
+                    run.isSuperscript = runIsSuperscript;
 
                     currentLine.runs.push_back(run);
                     lineX += measurement.width;
@@ -386,6 +607,7 @@ private:
                     run.smallCaps = runSmallCaps;
                     run.isLink = runIsLink;
                     run.href = runHref;
+                    run.isSuperscript = runIsSuperscript;
 
                     currentLine.runs.push_back(run);
                     lineX += segMeasurement.width;
@@ -407,6 +629,50 @@ private:
         // Mark the very last line as last-of-paragraph
         if (!lines.empty()) {
             lines.back().isLastLineOfParagraph = true;
+        }
+
+        // Hanging punctuation: if enabled, check the first text run of the first line
+        // for an opening quote character and shift it into the left margin
+        if (bstyle.hangingPunctuation && !lines.empty()) {
+            auto& firstLine = lines[0];
+            // Find the first run that has actual text content (skip marker runs with inlineIndex == -1)
+            for (auto& run : firstLine.runs) {
+                if (run.text.empty() || run.inlineIndex < 0) continue;
+                // Check first character for opening quotes
+                // UTF-8 sequences: \xe2\x80\x9c = left double quote
+                //                  \xe2\x80\x9d = right double quote (rare at start)
+                //                  \xe2\x80\x98 = left single quote
+                //                  \xe2\x80\x99 = right single quote
+                //                  \xc2\xab     = left guillemet
+                //                  \xe2\x80\x9e = double low-9 quote
+                //                  " and '      = ASCII quotes
+                std::string firstChar;
+                unsigned char lead = static_cast<unsigned char>(run.text[0]);
+                if (lead == '"' || lead == '\'') {
+                    firstChar = run.text.substr(0, 1);
+                } else if (lead == 0xC2 && run.text.size() >= 2) {
+                    firstChar = run.text.substr(0, 2);  // guillemet
+                } else if (lead == 0xE2 && run.text.size() >= 3) {
+                    firstChar = run.text.substr(0, 3);  // unicode quotes
+                }
+                if (!firstChar.empty()) {
+                    bool isOpenQuote = (firstChar == "\"" || firstChar == "'" ||
+                                        firstChar == "\xe2\x80\x9c" ||  // left double quote
+                                        firstChar == "\xe2\x80\x98" ||  // left single quote
+                                        firstChar == "\xc2\xab"     ||  // left guillemet
+                                        firstChar == "\xe2\x80\x9e");   // double low-9 quote
+                    if (isOpenQuote) {
+                        auto charMeasure = platform_->measureText(firstChar, run.font);
+                        float hangOffset = charMeasure.width;
+                        // Shift this run and all subsequent runs left
+                        for (auto& r : firstLine.runs) {
+                            r.x -= hangOffset;
+                        }
+                        firstLine.x -= hangOffset;
+                    }
+                }
+                break;  // Only check the first real text run
+            }
         }
 
         return lines;

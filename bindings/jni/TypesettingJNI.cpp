@@ -74,6 +74,8 @@ public:
             "(Ljava/lang/String;Ljava/lang/String;FIF)I");
         getFontMetricsMethod_ = env->GetMethodID(cls, "getFontMetrics",
             "(Ljava/lang/String;FI)[F");
+        getImageSizeMethod_ = env->GetMethodID(cls, "getImageSize",
+            "(Ljava/lang/String;)[F");
     }
 
     ~AndroidPlatformAdapter() {
@@ -155,12 +157,26 @@ public:
         return {};
     }
 
+    std::optional<typesetting::ImageSize> getImageSize(const std::string& src) override {
+        jstring jSrc = safeNewStringUTF(env_, src.c_str());
+        jfloatArray result = (jfloatArray)env_->CallObjectMethod(
+            measureHelper_, getImageSizeMethod_, jSrc);
+        env_->DeleteLocalRef(jSrc);
+        if (!result) return std::nullopt;
+        jfloat *data = env_->GetFloatArrayElements(result, nullptr);
+        typesetting::ImageSize size{data[0], data[1]};
+        env_->ReleaseFloatArrayElements(result, data, 0);
+        env_->DeleteLocalRef(result);
+        return size;
+    }
+
 private:
     JNIEnv *env_;
     jobject measureHelper_;
     jmethodID measureTextMethod_;
     jmethodID findLineBreakMethod_;
     jmethodID getFontMetricsMethod_;
+    jmethodID getImageSizeMethod_;
 };
 
 // MARK: - JNI Functions
@@ -239,6 +255,7 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
     jfieldID resultChapterIdField = env->GetFieldID(resultClass, "chapterId", "Ljava/lang/String;");
     jfieldID resultPagesField = env->GetFieldID(resultClass, "pages", "Ljava/util/List;");
     jfieldID resultTotalBlocksField = env->GetFieldID(resultClass, "totalBlocks", "I");
+    jfieldID resultWarningsField = env->GetFieldID(resultClass, "warnings", "Ljava/util/List;");
 
     // TSPage fields
     jfieldID pageIndexField = env->GetFieldID(pageClass, "pageIndex", "I");
@@ -272,6 +289,7 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
     jfieldID runSmallCapsField = env->GetFieldID(runClass, "smallCaps", "Z");
     jfieldID runIsLinkField = env->GetFieldID(runClass, "isLink", "Z");
     jfieldID runHrefField = env->GetFieldID(runClass, "href", "Ljava/lang/String;");
+    jfieldID runIsSuperscriptField = env->GetFieldID(runClass, "isSuperscript", "Z");
 
     // TSDecoration fields
     jfieldID decoTypeField = env->GetFieldID(decoClass, "type", "I");
@@ -279,6 +297,8 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
     jfieldID decoYField = env->GetFieldID(decoClass, "y", "F");
     jfieldID decoWidthField = env->GetFieldID(decoClass, "width", "F");
     jfieldID decoHeightField = env->GetFieldID(decoClass, "height", "F");
+    jfieldID decoImageSrcField = env->GetFieldID(decoClass, "imageSrc", "Ljava/lang/String;");
+    jfieldID decoImageAltField = env->GetFieldID(decoClass, "imageAlt", "Ljava/lang/String;");
 
     // Build result object
     jobject jResult = env->NewObject(resultClass, resultInit);
@@ -337,6 +357,8 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
                 env->SetObjectField(jRun, runHrefField, jHref);
                 env->DeleteLocalRef(jHref);
 
+                env->SetBooleanField(jRun, runIsSuperscriptField, run.isSuperscript);
+
                 env->CallBooleanMethod(runsList, arrayListAdd, jRun);
                 env->DeleteLocalRef(jRun);
             }
@@ -358,6 +380,18 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
             env->SetFloatField(jDeco, decoYField, deco.y);
             env->SetFloatField(jDeco, decoWidthField, deco.width);
             env->SetFloatField(jDeco, decoHeightField, deco.height);
+
+            if (!deco.imageSrc.empty()) {
+                jstring jImageSrc = safeNewStringUTF(env, deco.imageSrc.c_str());
+                env->SetObjectField(jDeco, decoImageSrcField, jImageSrc);
+                env->DeleteLocalRef(jImageSrc);
+            }
+            if (!deco.imageAlt.empty()) {
+                jstring jImageAlt = safeNewStringUTF(env, deco.imageAlt.c_str());
+                env->SetObjectField(jDeco, decoImageAltField, jImageAlt);
+                env->DeleteLocalRef(jImageAlt);
+            }
+
             env->CallBooleanMethod(decosList, arrayListAdd, jDeco);
             env->DeleteLocalRef(jDeco);
         }
@@ -369,6 +403,19 @@ static jobject convertLayoutResult(JNIEnv *env, const typesetting::LayoutResult&
     }
     env->SetObjectField(jResult, resultPagesField, pagesList);
     env->DeleteLocalRef(pagesList);
+
+    // Build warnings list
+    jclass integerClass = env->FindClass("java/lang/Integer");
+    jmethodID integerValueOf = env->GetStaticMethodID(integerClass, "valueOf", "(I)Ljava/lang/Integer;");
+    jobject warningsList = env->NewObject(arrayListClass, arrayListInit, (jint)result.warnings.size());
+    for (const auto& w : result.warnings) {
+        jobject jInt = env->CallStaticObjectMethod(integerClass, integerValueOf, static_cast<jint>(w));
+        env->CallBooleanMethod(warningsList, arrayListAdd, jInt);
+        env->DeleteLocalRef(jInt);
+    }
+    env->SetObjectField(jResult, resultWarningsField, warningsList);
+    env->DeleteLocalRef(warningsList);
+    env->DeleteLocalRef(integerClass);
 
     // Clean up class refs
     env->DeleteLocalRef(resultClass);
