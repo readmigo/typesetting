@@ -1,13 +1,10 @@
 #include "TypesettingJNI.h"
 #include "typesetting/engine.h"
 #include "typesetting/platform.h"
+#include "typesetting/log.h"
 
-#include <android/log.h>
 #include <string>
 #include <memory>
-
-#define LOG_TAG "TypesettingJNI"
-#define LOGI(...) __android_log_print(ANDROID_LOG_INFO, LOG_TAG, __VA_ARGS__)
 
 /// Create a jstring safely from a UTF-8 std::string.
 /// NewStringUTF requires valid Modified UTF-8; if the C++ engine produces
@@ -230,6 +227,9 @@ static typesetting::Style extractStyle(JNIEnv *env, jobject style) {
     s.marginRight = env->GetFloatField(style, marginRightField);
 
     env->DeleteLocalRef(cls);
+    TS_LOGD("extractStyle: font='%s' size=%.1f margins=[%.0f,%.0f,%.0f,%.0f]",
+            s.font.family.c_str(), s.font.size,
+            s.marginTop, s.marginRight, s.marginBottom, s.marginLeft);
     return s;
 }
 
@@ -437,7 +437,7 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeCreate(
     auto handle = new EngineHandle();
     handle->adapter = adapter;
     handle->engine = std::make_unique<typesetting::Engine>(adapter);
-    LOGI("TypesettingEngine created with platform adapter");
+    TS_LOGI("TypesettingEngine created with platform adapter");
     return reinterpret_cast<jlong>(handle);
 }
 
@@ -445,7 +445,7 @@ JNIEXPORT void JNICALL
 Java_com_readmigo_typesetting_TypesettingEngine_nativeDestroy(JNIEnv *env, jobject thiz, jlong ptr) {
     auto handle = reinterpret_cast<EngineHandle*>(ptr);
     delete handle;
-    LOGI("TypesettingEngine destroyed");
+    TS_LOGI("TypesettingEngine destroyed");
 }
 
 JNIEXPORT jobject JNICALL
@@ -455,7 +455,7 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeLayoutHTML(
     jobject style, jfloat pageWidth, jfloat pageHeight) {
     auto handle = reinterpret_cast<EngineHandle*>(ptr);
     if (!handle || !handle->engine) {
-        LOGI("nativeLayoutHTML: invalid engine handle");
+        TS_LOGI("nativeLayoutHTML: invalid engine handle");
         return nullptr;
     }
 
@@ -465,6 +465,9 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeLayoutHTML(
     typesetting::Style s = extractStyle(env, style);
     typesetting::PageSize pageSize{pageWidth, pageHeight};
 
+    TS_LOGI("nativeLayoutHTML: chapter='%s' html=%zu css=%zu page=%.0fx%.0f",
+            chapterIdStr.c_str(), htmlStr.size(), cssStr.size(), pageWidth, pageHeight);
+
     typesetting::LayoutResult result;
     if (cssStr.empty()) {
         result = handle->engine->layoutHTML(htmlStr, chapterIdStr, s, pageSize);
@@ -472,8 +475,8 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeLayoutHTML(
         result = handle->engine->layoutHTML(htmlStr, cssStr, chapterIdStr, s, pageSize);
     }
 
-    LOGI("nativeLayoutHTML: %zu pages for chapter '%s'",
-         result.pages.size(), chapterIdStr.c_str());
+    TS_LOGI("nativeLayoutHTML: chapter='%s' pages=%zu warnings=%zu",
+            chapterIdStr.c_str(), result.pages.size(), result.warnings.size());
 
     return convertLayoutResult(env, result);
 }
@@ -484,7 +487,7 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeRelayout(
     jobject style, jfloat pageWidth, jfloat pageHeight) {
     auto handle = reinterpret_cast<EngineHandle*>(ptr);
     if (!handle || !handle->engine) {
-        LOGI("nativeRelayout: invalid engine handle");
+        TS_LOGI("nativeRelayout: invalid engine handle");
         return nullptr;
     }
 
@@ -493,7 +496,7 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeRelayout(
 
     typesetting::LayoutResult result = handle->engine->relayout(s, pageSize);
 
-    LOGI("nativeRelayout: %zu pages", result.pages.size());
+    TS_LOGI("nativeRelayout: %zu pages", result.pages.size());
 
     return convertLayoutResult(env, result);
 }

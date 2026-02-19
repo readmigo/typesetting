@@ -1,5 +1,6 @@
 #include "typesetting/layout.h"
 #include "typesetting/style_resolver.h"
+#include "typesetting/log.h"
 #include <algorithm>
 
 namespace typesetting {
@@ -90,6 +91,7 @@ private:
             currentPage.contentHeight = contentHeight;
             currentPage.firstBlockIndex = blockIdx;
             cursorY = 0;
+            TS_LOGD("layout: newPage pageIndex=%d blockIdx=%d", currentPage.pageIndex, blockIdx);
         };
 
         for (int blockIdx = 0; blockIdx < static_cast<int>(chapter.blocks.size()); ++blockIdx) {
@@ -153,6 +155,12 @@ private:
                     float scale = contentWidth / imgSize->width;
                     imageWidth = contentWidth;
                     imageHeight = imgSize->height * scale;
+                    TS_LOGD("layout: image src='%s' native=%.0fx%.0f scaled=%.0fx%.0f",
+                            block.src.c_str(), imgSize->width, imgSize->height,
+                            imageWidth, imageHeight);
+                } else {
+                    TS_LOGD("layout: image src='%s' no dimensions, placeholder=%.0fx%.0f",
+                            block.src.c_str(), imageWidth, imageHeight);
                 }
 
                 if (cursorY + imageHeight > contentHeight && !currentPage.lines.empty()) {
@@ -226,6 +234,9 @@ private:
                         if (rowCols > maxCols) maxCols = rowCols;
                     }
                     if (maxCols == 0) maxCols = 1;
+                    TS_LOGD("layout: table rows=%zu cols=%d cellWidth=%.1f",
+                            block.tableRows.size(), maxCols,
+                            contentWidth / static_cast<float>(maxCols));
 
                     float cellWidth = contentWidth / static_cast<float>(maxCols);
                     float cellPadding = bstyle.font.size * 0.3f;
@@ -377,9 +388,13 @@ private:
 
         // Detect layout overflow: if page count is unreasonably high relative to content
         if (result.totalBlocks > 0 && static_cast<int>(result.pages.size()) > result.totalBlocks * 50) {
+            TS_LOGW("layout: overflow detected pages=%zu blocks=%d ratio=%d",
+                    result.pages.size(), result.totalBlocks,
+                    static_cast<int>(result.pages.size()) / result.totalBlocks);
             result.warnings.push_back(LayoutWarning::LayoutOverflow);
         }
 
+        TS_LOGI("layoutChapter: pages=%zu blocks=%d", result.pages.size(), result.totalBlocks);
         return result;
     }
 

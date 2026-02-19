@@ -1,4 +1,5 @@
 #include "typesetting/document.h"
+#include "typesetting/log.h"
 #include <sstream>
 #include <algorithm>
 #include <cctype>
@@ -314,6 +315,15 @@ std::vector<Block> parseHTML(const std::string& html) {
                     tableBlock.tableRows.push_back(currentRow);
                 }
 
+                int maxCols = 0;
+                for (const auto& row : tableBlock.tableRows) {
+                    int rowCols = 0;
+                    for (const auto& cell : row.cells) rowCols += cell.colspan;
+                    if (rowCols > maxCols) maxCols = rowCols;
+                }
+                TS_LOGD("parseHTML: table rows=%zu cols=%d",
+                        tableBlock.tableRows.size(), maxCols);
+
                 blocks.push_back(tableBlock);
 
                 // Skip past </table>
@@ -466,7 +476,13 @@ std::vector<Block> parseHTML(const std::string& html) {
 
             // Inline formatting tags
             if (!tag.isClosing) {
-                currentInline = tagToInlineType(tag.name);
+                auto inType = tagToInlineType(tag.name);
+                if (inType == InlineType::Text && tag.name != "b" && tag.name != "strong" &&
+                    tag.name != "i" && tag.name != "em" && tag.name != "cite" &&
+                    tag.name != "code" && tag.name != "a") {
+                    TS_LOGD("parseHTML: unrecognized tag <%s>", tag.name.c_str());
+                }
+                currentInline = inType;
                 currentInlineRaw = tag.raw;
             } else {
                 currentInline = InlineType::Text;
@@ -520,6 +536,26 @@ std::vector<Block> parseHTML(const std::string& html) {
     if (inBlock && !currentBlock.inlines.empty()) {
         blocks.push_back(currentBlock);
     }
+
+    // Log parse summary
+    int nP = 0, nH = 0, nBq = 0, nLi = 0, nImg = 0, nTbl = 0, nHr = 0, nOther = 0;
+    for (const auto& b : blocks) {
+        switch (b.type) {
+            case BlockType::Paragraph:     ++nP; break;
+            case BlockType::Heading1:
+            case BlockType::Heading2:
+            case BlockType::Heading3:
+            case BlockType::Heading4:      ++nH; break;
+            case BlockType::Blockquote:    ++nBq; break;
+            case BlockType::ListItem:      ++nLi; break;
+            case BlockType::Image:         ++nImg; break;
+            case BlockType::Table:         ++nTbl; break;
+            case BlockType::HorizontalRule:++nHr; break;
+            default:                       ++nOther; break;
+        }
+    }
+    TS_LOGI("parseHTML: html=%zu blocks=%zu (p=%d h=%d bq=%d li=%d img=%d tbl=%d hr=%d other=%d)",
+            html.size(), blocks.size(), nP, nH, nBq, nLi, nImg, nTbl, nHr, nOther);
 
     return blocks;
 }

@@ -1,4 +1,5 @@
 #include "typesetting/style_resolver.h"
+#include "typesetting/log.h"
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -97,6 +98,7 @@ std::vector<BlockComputedStyle> StyleResolver::resolve(
         result.push_back(std::move(style));
     }
 
+    TS_LOGI("StyleResolver::resolve: blocks=%zu rules=%zu", result.size(), stylesheet_.rules.size());
     return result;
 }
 

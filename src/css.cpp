@@ -1,4 +1,5 @@
 #include "typesetting/css.h"
+#include "typesetting/log.h"
 #include <algorithm>
 #include <cctype>
 #include <sstream>
@@ -544,6 +545,7 @@ CSSStylesheet CSSStylesheet::parse(const std::string& css) {
         pos = closeBrace + 1;
     }
 
+    TS_LOGI("CSSStylesheet::parse: css=%zu rules=%zu", css.size(), sheet.rules.size());
     return sheet;
 }
 
