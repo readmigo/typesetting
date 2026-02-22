@@ -81,6 +81,11 @@ LayoutResult Engine::layoutHTML(const std::string& html,
 
     StyleResolver resolver(lastStylesheet_);
     auto resolved = resolver.resolve(lastBlocks_, style);
+
+    // Use expanded blocks if display:block expansion occurred
+    if (!resolved.expandedBlocks.empty()) {
+        lastBlocks_ = std::move(resolved.expandedBlocks);
+    }
     lastStyles_ = resolved.blockStyles;
 
     auto result = layoutEngine_->layoutChapter(
@@ -140,6 +145,9 @@ LayoutResult Engine::relayout(const Style& style,
     if (hasStylesheet_) {
         StyleResolver resolver(lastStylesheet_);
         auto resolved = resolver.resolve(lastBlocks_, style);
+        if (!resolved.expandedBlocks.empty()) {
+            lastBlocks_ = std::move(resolved.expandedBlocks);
+        }
         lastStyles_ = resolved.blockStyles;
         result = layoutEngine_->layoutChapter(
             Chapter{lastChapterId_, "", 0, lastBlocks_}, lastStyles_, pageSize);

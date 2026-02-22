@@ -1404,3 +1404,46 @@ TEST(LayoutTest, ImprintPageLayout) {
     // !important font-style: normal wins over p a { font-style: italic }
     EXPECT_EQ(resolved.inlineStyles[0][1].fontStyle.value_or(FontStyle::Italic), FontStyle::Normal);
 }
+
+// =============================================================================
+// MARK: - Phase 5: Poetry Verse Layout Tests
+// =============================================================================
+
+TEST(LayoutTest, PoetryVerseDisplayBlock) {
+    auto platform = std::make_shared<MockPlatformAdapter>();
+    platform->charWidth = 8.0f;
+    Engine engine(platform);
+
+    std::string css = ".verse p > span { display: block; padding-left: 1em; text-indent: -1em; }";
+    std::string html =
+        "<section class=\"verse\">"
+        "<p>"
+        "<span>First verse line</span>"
+        "<br/>"
+        "<span>Second verse line</span>"
+        "</p>"
+        "</section>";
+
+    Style style;
+    style.font.size = 16.0f;
+    PageSize pageSize{400.0f, 800.0f};
+
+    auto result = engine.layoutHTML(html, css, "ch1", style, pageSize);
+    ASSERT_GT(result.pages.size(), 0);
+
+    // Each span should produce a separate line (separate block)
+    auto& page = result.pages[0];
+    ASSERT_GE(page.lines.size(), 2);
+
+    // Find lines containing verse text
+    bool foundFirst = false;
+    bool foundSecond = false;
+    for (auto& line : page.lines) {
+        for (auto& run : line.runs) {
+            if (run.text.find("First verse") != std::string::npos) foundFirst = true;
+            if (run.text.find("Second verse") != std::string::npos) foundSecond = true;
+        }
+    }
+    EXPECT_TRUE(foundFirst);
+    EXPECT_TRUE(foundSecond);
+}
