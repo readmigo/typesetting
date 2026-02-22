@@ -1426,3 +1426,79 @@ TEST(StyleResolverTest, InlineDisplayBlockNotSetForNonMatch) {
     ASSERT_EQ(resolved.inlineStyles[0].size(), 1);
     EXPECT_FALSE(resolved.inlineStyles[0][0].displayBlock);
 }
+
+TEST(StyleResolverTest, DisplayBlockNoExpansionWithoutMatch) {
+    // When no inlines have display:block, expandedBlocks should be empty
+    auto sheet = CSSStylesheet::parse("p { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.inlines.push_back(InlineElement::plain("Just text"));
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_TRUE(resolved.expandedBlocks.empty());
+    EXPECT_EQ(resolved.blockStyles.size(), 1);
+}
+
+TEST(StyleResolverTest, DisplayBlockMixedInlines) {
+    // Block with: plain text + display:block span + plain text
+    auto sheet = CSSStylesheet::parse(
+        "p > span { display: block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    InlineElement text1;
+    text1.text = "Before ";
+    InlineElement span1;
+    span1.htmlTag = "span";
+    span1.text = "Promoted line";
+    InlineElement text2;
+    text2.text = " After";
+    block.inlines = {text1, span1, text2};
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    // Should expand to 3 blocks: "Before " | "Promoted line" | " After"
+    ASSERT_EQ(resolved.expandedBlocks.size(), 3);
+    EXPECT_EQ(resolved.expandedBlocks[0].inlines[0].text, "Before ");
+    EXPECT_EQ(resolved.expandedBlocks[1].inlines[0].text, "Promoted line");
+    EXPECT_EQ(resolved.expandedBlocks[2].inlines[0].text, " After");
+}
+
+TEST(StyleResolverTest, DisplayBlockPreservesParentMetadata) {
+    auto sheet = CSSStylesheet::parse(
+        ".verse p > span { display: block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.className = "verse-para";
+    block.parentTag = "section";
+    block.parentClassName = "verse";
+    block.parentEpubType = "z3998:verse";
+    InlineElement span1;
+    span1.htmlTag = "span";
+    span1.text = "A verse line";
+    block.inlines = {span1};
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    ASSERT_EQ(resolved.expandedBlocks.size(), 1);
+    // Promoted span's parent should be the original block (p), not the grandparent (section)
+    EXPECT_EQ(resolved.expandedBlocks[0].parentTag, "p");
+    EXPECT_EQ(resolved.expandedBlocks[0].parentClassName, "verse-para");
+    // parentEpubType is the block's own epubType (empty), not the grandparent's
+    EXPECT_EQ(resolved.expandedBlocks[0].parentEpubType, "");
+}
