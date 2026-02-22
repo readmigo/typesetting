@@ -26,6 +26,7 @@ struct TextRun {
     bool isLink = false;       // This run is a hyperlink
     std::string href;          // Link target URL
     bool isSuperscript = false; // Render as superscript (footnote refs)
+    bool isSubscript = false;   // Render as subscript (vertical-align: sub)
 };
 
 /// A laid-out line on a page

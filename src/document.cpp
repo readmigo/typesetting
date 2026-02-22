@@ -127,7 +127,7 @@ BlockType tagToBlockType(const std::string& tagName) {
 bool isContainerTag(const std::string& name) {
     return name == "section" || name == "div" || name == "article" ||
            name == "figure" || name == "ul" || name == "ol" ||
-           name == "hgroup";
+           name == "hgroup" || name == "header" || name == "footer";
 }
 
 /// Check if tag is a block-level element
@@ -345,17 +345,7 @@ std::vector<Block> parseHTML(const std::string& html) {
                 tag.name == "ruby" ||
                 tag.name == "rt" || tag.name == "rp" ||
                 tag.name == "thead" || tag.name == "tbody" ||
-                tag.name == "header" ||
-                tag.name == "footer" || tag.name == "nav" || tag.name == "aside") {
-                // For container-like structural tags, treat like containers
-                if (!tag.isClosing && (tag.name == "header" || tag.name == "footer" ||
-                    tag.name == "nav" || tag.name == "aside")) {
-                    if (inBlock && !currentBlock.inlines.empty()) {
-                        blocks.push_back(currentBlock);
-                        currentBlock = Block{};
-                        inBlock = false;
-                    }
-                }
+                tag.name == "nav" || tag.name == "aside") {
                 pos = nextPos;
                 continue;
             }

@@ -31,6 +31,28 @@ std::string applyTextTransform(const std::string& text, TextTransform transform)
     return result;
 }
 
+/// Return the byte length of a UTF-8 character given its lead byte.
+static size_t utf8CharLen(unsigned char c) {
+    if (c < 0x80) return 1;
+    if ((c & 0xE0) == 0xC0) return 2;
+    if ((c & 0xF0) == 0xE0) return 3;
+    if ((c & 0xF8) == 0xF0) return 4;
+    return 1;
+}
+
+/// Convert a character count (UTF-16 units) to a UTF-8 byte offset.
+static size_t charCountToByteOffset(const std::string& text, size_t charCount) {
+    size_t bytePos = 0;
+    size_t chars = 0;
+    while (bytePos < text.size() && chars < charCount) {
+        size_t len = utf8CharLen(static_cast<unsigned char>(text[bytePos]));
+        if (bytePos + len > text.size()) break;
+        bytePos += len;
+        chars += (len == 4) ? 2 : 1;
+    }
+    return bytePos;
+}
+
 } // anonymous namespace
 
 class LayoutEngine::Impl {
@@ -78,6 +100,8 @@ public:
 
 private:
     std::shared_ptr<PlatformAdapter> platform_;
+    std::string locale_ = "en";
+    bool hyphenationEnabled_ = false;
 
     // ---------------------------------------------------------------
     // Core implementation with ResolvedStyles + page margins from Style
@@ -86,6 +110,9 @@ private:
                                const ResolvedStyles& resolved,
                                const Style& pageStyle,
                                const PageSize& pageSize) {
+        locale_ = pageStyle.locale;
+        hyphenationEnabled_ = pageStyle.hyphenation;
+
         LayoutResult result;
         result.chapterId = chapter.id;
         result.totalBlocks = static_cast<int>(chapter.blocks.size());
@@ -423,6 +450,10 @@ private:
                     if (run.isSuperscript) {
                         run.y -= line.ascent * 0.3f;
                     }
+                    // Subscript: shift baseline down by 20% of ascent
+                    if (run.isSubscript) {
+                        run.y += line.ascent * 0.2f;
+                    }
                 }
 
                 currentPage.lines.push_back(line);
@@ -541,6 +572,7 @@ private:
             bool runSmallCaps = bstyle.smallCaps;
             bool runIsLink = false;
             bool runIsSuperscript = false;
+            bool runIsSubscript = false;
             std::string runHref;
 
             switch (inl.type) {
@@ -589,6 +621,12 @@ private:
                 }
                 if (istyle.isSuperscript) {
                     runIsSuperscript = true;
+                    if (!istyle.fontSizeMultiplier) {
+                        inlineFont.size = bstyle.font.size * 0.7f;
+                    }
+                }
+                if (istyle.isSubscript) {
+                    runIsSubscript = true;
                     if (!istyle.fontSizeMultiplier) {
                         inlineFont.size = bstyle.font.size * 0.7f;
                     }
@@ -658,6 +696,7 @@ private:
                     run.isLink = runIsLink;
                     run.href = runHref;
                     run.isSuperscript = runIsSuperscript;
+                    run.isSubscript = runIsSubscript;
 
                     currentLine.runs.push_back(run);
                     lineX += measurement.width;
@@ -665,19 +704,64 @@ private:
                     remaining.clear();
                 } else {
                     // Text doesn't fit — find break point
-                    size_t breakPos = platform_->findLineBreak(remaining, inlineFont, spaceLeft);
+                    size_t breakPos;
+                    bool hyphenBreak = false;
+
+                    // Check for noWrap: treat entire inline as unbreakable
+                    bool inlineNoWrap = (inIdx < static_cast<int>(inlineStyles.size()) &&
+                                         inlineStyles[inIdx].noWrap);
+                    if (inlineNoWrap) {
+                        breakPos = 0;  // Force: don't break noWrap text
+                    } else {
+                        breakPos = platform_->findLineBreak(remaining, inlineFont, spaceLeft);
+                    }
 
                     if (breakPos == 0) {
                         // Nothing fits
                         if (currentLine.runs.empty() && lineX <= bstyle.textIndent + 0.001f) {
-                            // Line is empty — force at least one UTF-8 character
-                            unsigned char lead = static_cast<unsigned char>(remaining[0]);
-                            if (lead < 0x80) breakPos = 1;
-                            else if ((lead & 0xE0) == 0xC0) breakPos = 2;
-                            else if ((lead & 0xF0) == 0xE0) breakPos = 3;
-                            else if ((lead & 0xF8) == 0xF0) breakPos = 4;
-                            else breakPos = 1;
-                            if (breakPos > remaining.size()) breakPos = remaining.size();
+                            if (inlineNoWrap) {
+                                // NoWrap: force entire text on this line (may overflow)
+                                breakPos = remaining.size();
+                            } else if (bstyle.hyphens && hyphenationEnabled_ &&
+                                       platform_->supportsHyphenation(locale_)) {
+                                // Try hyphenation before forcing one character
+                                size_t wordEnd = 0;
+                                size_t wi = 0;
+                                while (wi < remaining.size()) {
+                                    unsigned char wc = static_cast<unsigned char>(remaining[wi]);
+                                    if (wc == ' ' || wc == '\t') break;
+                                    wi += utf8CharLen(wc);
+                                    wordEnd = wi;
+                                }
+                                if (wordEnd > 4) {
+                                    std::string word = remaining.substr(0, wordEnd);
+                                    auto hyphPoints = platform_->findHyphenationPoints(word, locale_);
+                                    auto hyphenMeasure = platform_->measureText("-", inlineFont);
+                                    float hyphenWidth = hyphenMeasure.width;
+                                    // Try from last to first (prefer longer segments)
+                                    for (auto it = hyphPoints.rbegin(); it != hyphPoints.rend(); ++it) {
+                                        size_t bytePos = charCountToByteOffset(word, *it);
+                                        if (bytePos == 0 || bytePos >= wordEnd) continue;
+                                        auto segMeasure = platform_->measureText(
+                                            remaining.substr(0, bytePos), inlineFont);
+                                        if (segMeasure.width + hyphenWidth <= spaceLeft) {
+                                            breakPos = bytePos;
+                                            hyphenBreak = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            if (breakPos == 0) {
+                                // Force at least one UTF-8 character
+                                unsigned char lead = static_cast<unsigned char>(remaining[0]);
+                                if (lead < 0x80) breakPos = 1;
+                                else if ((lead & 0xE0) == 0xC0) breakPos = 2;
+                                else if ((lead & 0xF0) == 0xE0) breakPos = 3;
+                                else if ((lead & 0xF8) == 0xF0) breakPos = 4;
+                                else breakPos = 1;
+                                if (breakPos > remaining.size()) breakPos = remaining.size();
+                            }
                         } else {
                             // Complete current line and start a new one
                             completeLine(false);
@@ -691,6 +775,11 @@ private:
                     std::string trimmedSegment = segment;
                     while (!trimmedSegment.empty() && trimmedSegment.back() == ' ') {
                         trimmedSegment.pop_back();
+                    }
+
+                    // For hyphenation breaks, append visible hyphen
+                    if (hyphenBreak) {
+                        trimmedSegment += "-";
                     }
 
                     auto segMeasurement = platform_->measureText(trimmedSegment, inlineFont);
@@ -708,9 +797,15 @@ private:
                     run.isLink = runIsLink;
                     run.href = runHref;
                     run.isSuperscript = runIsSuperscript;
+                    run.isSubscript = runIsSubscript;
 
                     currentLine.runs.push_back(run);
                     lineX += segMeasurement.width;
+
+                    // Mark line as ending with hyphen
+                    if (hyphenBreak) {
+                        currentLine.endsWithHyphen = true;
+                    }
 
                     // Complete the current line
                     completeLine(false);
