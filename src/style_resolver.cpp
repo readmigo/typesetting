@@ -89,7 +89,14 @@ ResolvedStyles StyleResolver::resolve(
         bool cssFontSizeSet = false;
         for (const auto* rule : matches) {
             if (rule->properties.fontSize.has_value()) cssFontSizeSet = true;
-            applyProperties(rule->properties, style, baseFontSize);
+        }
+        // Pass 1: apply non-important properties
+        for (const auto* rule : matches) {
+            applyProperties(rule->properties, style, baseFontSize, false);
+        }
+        // Pass 2: apply !important properties (override regardless of specificity)
+        for (const auto* rule : matches) {
+            applyProperties(rule->properties, style, baseFontSize, true);
         }
 
         applyUserOverrides(style, userStyle, block, cssFontSizeSet);
@@ -110,8 +117,13 @@ ResolvedStyles StyleResolver::resolve(
                       [](const CSSRule* a, const CSSRule* b) {
                           return a->selector.specificity() < b->selector.specificity();
                       });
+            // Pass 1: non-important
             for (const auto* rule : inlineMatches) {
-                applyInlineProperties(rule->properties, istyle);
+                applyInlineProperties(rule->properties, istyle, false);
+            }
+            // Pass 2: important
+            for (const auto* rule : inlineMatches) {
+                applyInlineProperties(rule->properties, istyle, true);
             }
             inlineStyles.push_back(std::move(istyle));
         }
@@ -364,49 +376,55 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
 }
 
 void StyleResolver::applyProperties(
-    const CSSProperties& props, BlockComputedStyle& style, float baseFontSize) const {
+    const CSSProperties& props, BlockComputedStyle& style, float baseFontSize,
+    bool importantOnly) const {
 
-    if (props.textIndent.has_value()) {
+    auto shouldApply = [&](uint32_t flag) -> bool {
+        bool isImp = (props.importantFlags & flag) != 0;
+        return isImp == importantOnly;
+    };
+
+    if (props.textIndent.has_value() && shouldApply(kImpTextIndent)) {
         style.textIndent = props.textIndent.value() * baseFontSize;
     }
 
-    if (props.marginTop.has_value()) {
+    if (props.marginTop.has_value() && shouldApply(kImpMarginTop)) {
         style.marginTop = props.marginTop.value() * baseFontSize;
     }
 
-    if (props.marginBottom.has_value()) {
+    if (props.marginBottom.has_value() && shouldApply(kImpMarginBottom)) {
         style.marginBottom = props.marginBottom.value() * baseFontSize;
     }
 
-    if (props.marginLeft.has_value()) {
+    if (props.marginLeft.has_value() && shouldApply(kImpMarginLeft)) {
         style.marginLeft = props.marginLeft.value() * baseFontSize;
     }
 
-    if (props.marginRight.has_value()) {
+    if (props.marginRight.has_value() && shouldApply(kImpMarginRight)) {
         style.marginRight = props.marginRight.value() * baseFontSize;
     }
 
-    if (props.textAlign.has_value()) {
+    if (props.textAlign.has_value() && shouldApply(kImpTextAlign)) {
         style.alignment = props.textAlign.value();
     }
 
-    if (props.fontStyle.has_value()) {
+    if (props.fontStyle.has_value() && shouldApply(kImpFontStyle)) {
         style.font.style = props.fontStyle.value();
     }
 
-    if (props.fontWeight.has_value()) {
+    if (props.fontWeight.has_value() && shouldApply(kImpFontWeight)) {
         style.font.weight = props.fontWeight.value();
     }
 
-    if (props.fontSize.has_value()) {
+    if (props.fontSize.has_value() && shouldApply(kImpFontSize)) {
         style.font.size = props.fontSize.value() * baseFontSize;
     }
 
-    if (props.paddingLeft.has_value()) {
+    if (props.paddingLeft.has_value() && shouldApply(kImpPaddingLeft)) {
         style.paddingLeft = props.paddingLeft.value() * baseFontSize;
     }
 
-    if (props.fontVariant.has_value()) {
+    if (props.fontVariant.has_value() && shouldApply(kImpFontVariant)) {
         if (props.fontVariant.value() == FontVariant::SmallCaps) {
             style.smallCaps = true;
         } else {
@@ -414,11 +432,11 @@ void StyleResolver::applyProperties(
         }
     }
 
-    if (props.hyphens.has_value()) {
+    if (props.hyphens.has_value() && shouldApply(kImpHyphens)) {
         style.hyphens = props.hyphens.value();
     }
 
-    if (props.display.has_value()) {
+    if (props.display.has_value() && shouldApply(kImpDisplay)) {
         if (props.display.value() == "none") {
             style.display = BlockComputedStyle::Display::None;
             style.hidden = true;
@@ -429,35 +447,38 @@ void StyleResolver::applyProperties(
         }
     }
 
-    if (props.textTransform.has_value()) {
+    if (props.textTransform.has_value() && shouldApply(kImpTextTransform)) {
         style.textTransform = props.textTransform.value();
     }
 
-    if (props.fontVariantNumeric.has_value()) {
+    if (props.fontVariantNumeric.has_value() && shouldApply(kImpFontVariantNum)) {
         style.oldstyleNums = props.fontVariantNumeric.value();
     }
 
-    if (props.hangingPunctuation.has_value()) {
+    if (props.hangingPunctuation.has_value() && shouldApply(kImpHangingPunct)) {
         style.hangingPunctuation = props.hangingPunctuation.value();
     }
 
-    if (props.maxWidthPercent.has_value()) {
+    if (props.maxWidthPercent.has_value() && shouldApply(kImpMaxWidthPercent)) {
         style.maxWidthPercent = props.maxWidthPercent.value();
     }
 
-    if (props.marginLeftAuto.value_or(false) && props.marginRightAuto.value_or(false)) {
+    if (props.marginLeftAuto.value_or(false) && props.marginRightAuto.value_or(false)
+        && shouldApply(kImpMarginLeftAuto)) {
         style.horizontalCentering = true;
     }
 
     // HR style: construct from border-top-width and width-percent
-    if (props.borderTopWidth.has_value() || props.widthPercent.has_value()) {
+    bool hrBorder = props.borderTopWidth.has_value() && shouldApply(kImpBorderTopWidth);
+    bool hrWidth = props.widthPercent.has_value() && shouldApply(kImpWidthPercent);
+    if (hrBorder || hrWidth) {
         if (!style.hrStyle.has_value()) {
             style.hrStyle = HRStyle{};
         }
-        if (props.borderTopWidth.has_value()) {
+        if (hrBorder) {
             style.hrStyle->borderWidth = props.borderTopWidth.value();
         }
-        if (props.widthPercent.has_value()) {
+        if (hrWidth) {
             style.hrStyle->widthPercent = props.widthPercent.value();
         }
     }
@@ -556,28 +577,33 @@ bool StyleResolver::inlineSelectorMatches(
 }
 
 void StyleResolver::applyInlineProperties(
-    const CSSProperties& props, InlineComputedStyle& style) const {
+    const CSSProperties& props, InlineComputedStyle& style, bool importantOnly) const {
 
-    if (props.fontSize.has_value()) {
+    auto shouldApply = [&](uint32_t flag) -> bool {
+        bool isImp = (props.importantFlags & flag) != 0;
+        return isImp == importantOnly;
+    };
+
+    if (props.fontSize.has_value() && shouldApply(kImpFontSize)) {
         style.fontSizeMultiplier = props.fontSize.value();
     }
-    if (props.fontStyle.has_value()) {
+    if (props.fontStyle.has_value() && shouldApply(kImpFontStyle)) {
         style.fontStyle = props.fontStyle.value();
     }
-    if (props.fontWeight.has_value()) {
+    if (props.fontWeight.has_value() && shouldApply(kImpFontWeight)) {
         style.fontWeight = props.fontWeight.value();
     }
-    if (props.fontVariant.has_value()) {
+    if (props.fontVariant.has_value() && shouldApply(kImpFontVariant)) {
         if (props.fontVariant.value() == FontVariant::SmallCaps) {
             style.smallCaps = true;
         } else {
             style.smallCaps = false;
         }
     }
-    if (props.textTransform.has_value()) {
+    if (props.textTransform.has_value() && shouldApply(kImpTextTransform)) {
         style.textTransform = props.textTransform.value();
     }
-    if (props.verticalAlign.has_value()) {
+    if (props.verticalAlign.has_value() && shouldApply(kImpVerticalAlign)) {
         if (props.verticalAlign.value() == "super") {
             style.isSuperscript = true;
             style.isSubscript = false;
@@ -589,7 +615,7 @@ void StyleResolver::applyInlineProperties(
             style.isSubscript = false;
         }
     }
-    if (props.whiteSpace.has_value()) {
+    if (props.whiteSpace.has_value() && shouldApply(kImpWhiteSpace)) {
         style.noWrap = (props.whiteSpace.value() == "nowrap");
     }
 }

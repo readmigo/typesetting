@@ -1254,3 +1254,27 @@ TEST(StyleResolverTest, MarginAutoCentering) {
     EXPECT_TRUE(resolved.blockStyles[0].horizontalCentering);
     EXPECT_FLOAT_EQ(resolved.blockStyles[0].maxWidthPercent, 70.0f);
 }
+
+TEST(StyleResolverTest, ImportantOverridesHigherSpecificity) {
+    auto sheet = CSSStylesheet::parse(
+        "a { font-style: normal !important; }\n"
+        "blockquote p a { font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "blockquote";
+    block.inlines.push_back(InlineElement::link("text", "url"));
+    block.inlines[0].htmlTag = "a";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+    userStyle.font.style = FontStyle::Normal;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.inlineStyles.size(), 1);
+    ASSERT_EQ(resolved.inlineStyles[0].size(), 1);
+    // !important on lower-specificity rule should win
+    EXPECT_EQ(resolved.inlineStyles[0][0].fontStyle.value_or(FontStyle::Italic), FontStyle::Normal);
+}

@@ -35,14 +35,14 @@ private:
     /// Check if a CSS selector matches a given inline element within a parent block
     bool inlineSelectorMatches(const CSSSelector& selector, const InlineElement& inl, const Block& parentBlock) const;
 
-    /// Apply CSS properties onto a computed style
-    void applyProperties(const CSSProperties& props, BlockComputedStyle& style, float baseFontSize) const;
+    /// Apply CSS properties onto a computed style (importantOnly filters by !important flag)
+    void applyProperties(const CSSProperties& props, BlockComputedStyle& style, float baseFontSize, bool importantOnly = false) const;
 
     /// Apply user Style overrides as final layer
     void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet) const;
 
-    /// Apply CSS properties onto an inline computed style
-    void applyInlineProperties(const CSSProperties& props, InlineComputedStyle& style) const;
+    /// Apply CSS properties onto an inline computed style (importantOnly filters by !important flag)
+    void applyInlineProperties(const CSSProperties& props, InlineComputedStyle& style, bool importantOnly = false) const;
 };
 
 } // namespace typesetting
