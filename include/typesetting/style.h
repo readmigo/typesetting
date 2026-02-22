@@ -98,4 +98,27 @@ struct BlockComputedStyle {
     std::optional<HRStyle> hrStyle;
 };
 
+/// Text transformation modes
+enum class TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+};
+
+/// Computed style for a single inline element within a block.
+/// Fields are overrides relative to the parent BlockComputedStyle.
+/// nullopt = inherit from block.
+struct InlineComputedStyle {
+    std::optional<float> fontSizeMultiplier;   // Relative to block font size
+    std::optional<FontStyle> fontStyle;
+    std::optional<FontWeight> fontWeight;
+    std::optional<bool> smallCaps;
+    std::optional<TextTransform> textTransform;
+
+    bool isSuperscript = false;    // vertical-align: super
+    bool isSubscript = false;      // vertical-align: sub
+    bool noWrap = false;           // white-space: nowrap
+};
+
 } // namespace typesetting

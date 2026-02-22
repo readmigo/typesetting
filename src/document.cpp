@@ -158,6 +158,7 @@ std::vector<Block> parseHTML(const std::string& html) {
     bool inBlock = false;
     InlineType currentInline = InlineType::Text;
     std::string currentInlineRaw;  // Raw tag content for current inline element
+    std::string currentInlineTag;  // HTML tag name for current inline
 
     // Parent tracking for CSS selector matching
     std::vector<ParentInfo> parentStack;
@@ -341,8 +342,7 @@ std::vector<Block> parseHTML(const std::string& html) {
             // Skip structural/metadata tags that don't produce content
             if (tag.name == "html" || tag.name == "body" || tag.name == "meta" ||
                 tag.name == "link" || tag.name == "title" || tag.name == "!doctype" ||
-                tag.name == "span" || tag.name == "abbr" || tag.name == "sup" ||
-                tag.name == "sub" || tag.name == "small" || tag.name == "ruby" ||
+                tag.name == "ruby" ||
                 tag.name == "rt" || tag.name == "rp" ||
                 tag.name == "thead" || tag.name == "tbody" ||
                 tag.name == "header" ||
@@ -493,9 +493,11 @@ std::vector<Block> parseHTML(const std::string& html) {
                 }
                 currentInline = inType;
                 currentInlineRaw = tag.raw;
+                currentInlineTag = tag.name;
             } else {
                 currentInline = InlineType::Text;
                 currentInlineRaw.clear();
+                currentInlineTag.clear();
             }
 
             pos = nextPos;
@@ -517,9 +519,10 @@ std::vector<Block> parseHTML(const std::string& html) {
                 InlineElement el;
                 el.type = currentInline;
                 el.text = trimmed;
+                el.htmlTag = currentInlineTag;
 
                 // Extract inline metadata from the raw tag
-                if (currentInline != InlineType::Text && !currentInlineRaw.empty()) {
+                if (!currentInlineRaw.empty()) {
                     Tag dummyTag;
                     dummyTag.raw = currentInlineRaw;
                     el.lang = dummyTag.getAttribute("lang");

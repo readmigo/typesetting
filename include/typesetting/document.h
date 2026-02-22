@@ -26,6 +26,7 @@ struct InlineElement {
     std::string lang;       // <i lang="lt"> language attribute
     std::string className;  // inline element's class
     std::string epubType;   // <abbr epub:type="z3998:name-title">
+    std::string htmlTag;    // original HTML tag name ("a", "abbr", "span", etc.)
     bool isFootnoteRef = false;   // This inline is a footnote reference marker
     std::string footnoteId;        // Target footnote ID
 

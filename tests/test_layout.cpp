@@ -1106,6 +1106,31 @@ TEST(LayoutTest, HangingPunctuationASCIIQuote) {
 // MARK: - Error Handling Tests
 // =============================================================================
 
+// =============================================================================
+// MARK: - Inline htmlTag Tests
+// =============================================================================
+
+TEST(DocumentTest, InlineHtmlTagPopulated) {
+    auto blocks = parseHTML("<p><b>bold</b> text <a href=\"#\">link</a></p>");
+    ASSERT_GE(blocks.size(), 1);
+    ASSERT_GE(blocks[0].inlines.size(), 3);
+    EXPECT_EQ(blocks[0].inlines[0].htmlTag, "b");
+    EXPECT_EQ(blocks[0].inlines[1].htmlTag, "");  // plain text
+    EXPECT_EQ(blocks[0].inlines[2].htmlTag, "a");
+}
+
+TEST(DocumentTest, InlineHtmlTagAbbr) {
+    auto blocks = parseHTML("<p><abbr epub:type=\"z3998:name-title\">Mr.</abbr> Smith</p>");
+    ASSERT_GE(blocks.size(), 1);
+    ASSERT_GE(blocks[0].inlines.size(), 1);
+    EXPECT_EQ(blocks[0].inlines[0].htmlTag, "abbr");
+    EXPECT_EQ(blocks[0].inlines[0].epubType, "z3998:name-title");
+}
+
+// =============================================================================
+// MARK: - Error Handling Tests
+// =============================================================================
+
 TEST(ErrorTest, EmptyContentWarning) {
     auto platform = std::make_shared<MockPlatformAdapter>();
     Engine engine(platform);
