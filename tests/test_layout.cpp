@@ -2,6 +2,7 @@
 #include "typesetting/engine.h"
 #include "typesetting/document.h"
 #include "typesetting/style.h"
+#include "typesetting/style_resolver.h"
 #include "typesetting/page.h"
 
 using namespace typesetting;
@@ -1272,4 +1273,51 @@ TEST(LayoutTest, MaxWidthWithCentering) {
     // line.x = contentX(20) + blockOffsetX(90) = 110
     auto& line = result.pages[0].lines[0];
     EXPECT_NEAR(line.x, 110.0f, 1.0f);
+}
+
+TEST(LayoutTest, DedicationPageLayout) {
+    // Simulates SE dedication page: section with centered, width-constrained content
+    auto platform = std::make_shared<MockPlatformAdapter>();
+    platform->charWidth = 8.0f;
+    LayoutEngine engine(platform);
+
+    // Parse CSS similar to SE dedication
+    auto sheet = CSSStylesheet::parse(
+        "section > p { max-width: 70%; margin: auto; }");
+    StyleResolver resolver(sheet);
+
+    Chapter chapter;
+    chapter.id = "dedication";
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+    block.inlines.push_back(InlineElement::plain("To my beloved family"));
+    chapter.blocks.push_back(block);
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+    userStyle.font.family = "Georgia";
+
+    auto resolved = resolver.resolve(chapter.blocks, userStyle);
+
+    // Verify style resolution
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].maxWidthPercent, 70.0f);
+    EXPECT_TRUE(resolved.blockStyles[0].horizontalCentering);
+
+    // Verify layout positions the block centered
+    PageSize pageSize{400.0f, 600.0f};
+    auto result = engine.layoutChapter(chapter, resolved.blockStyles, pageSize);
+    ASSERT_FALSE(result.pages.empty());
+    ASSERT_FALSE(result.pages[0].lines.empty());
+
+    // contentWidth = 400 - 20 - 20 = 360 (default Style margins)
+    // maxWidth = 360 * 70% = 252
+    // centering offset = (360 - 252) / 2 = 54
+    // line.x = contentX(20) + offset(54) = 74
+    auto& dedicationLine = result.pages[0].lines[0];
+    EXPECT_GT(dedicationLine.x, 20.0f + 10.0f);  // noticeably right of page margin
+    EXPECT_NEAR(dedicationLine.x, 74.0f, 2.0f);
 }

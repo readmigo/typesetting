@@ -380,10 +380,19 @@ CSSProperties parseProperties(const std::string& block) {
                 }
             }
             if (values.size() == 1) {
-                props.marginTop = values[0].num;
-                props.marginRight = values[0].num;
-                props.marginBottom = values[0].num;
-                props.marginLeft = values[0].num;
+                if (values[0].isAuto) {
+                    props.marginTop = 0.0f;
+                    props.marginBottom = 0.0f;
+                    props.marginLeft = 0.0f;
+                    props.marginRight = 0.0f;
+                    props.marginLeftAuto = true;
+                    props.marginRightAuto = true;
+                } else {
+                    props.marginTop = values[0].num;
+                    props.marginRight = values[0].num;
+                    props.marginBottom = values[0].num;
+                    props.marginLeft = values[0].num;
+                }
             } else if (values.size() == 2) {
                 // margin: Y X -> top/bottom=Y, left/right=X
                 props.marginTop = values[0].isAuto ? 0.0f : values[0].num;
