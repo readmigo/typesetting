@@ -474,6 +474,12 @@ CSSProperties parseProperties(const std::string& block) {
             if (parseNumericValue(value, num, unit) && unit == "%") {
                 props.widthPercent = num;
             }
+        } else if (property == "max-width") {
+            float num;
+            std::string unit;
+            if (parseNumericValue(value, num, unit) && unit == "%") {
+                props.maxWidthPercent = num;
+            }
         }
     }
 
@@ -567,6 +573,7 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.fontVariantNumeric.has_value()) fontVariantNumeric = other.fontVariantNumeric;
     if (other.borderTopWidth.has_value()) borderTopWidth = other.borderTopWidth;
     if (other.widthPercent.has_value()) widthPercent = other.widthPercent;
+    if (other.maxWidthPercent.has_value()) maxWidthPercent = other.maxWidthPercent;
 }
 
 // --- CSSStylesheet ---

@@ -498,3 +498,15 @@ TEST(CSSTest, ParseFontVariantNumericNormal) {
     ASSERT_TRUE(sheet.rules[0].properties.fontVariantNumeric.has_value());
     EXPECT_FALSE(sheet.rules[0].properties.fontVariantNumeric.value());
 }
+
+// =============================================================================
+// MARK: - Phase 3: max-width and margin auto
+// =============================================================================
+
+TEST(CSSTest, ParseMaxWidthPercent) {
+    auto sheet = CSSStylesheet::parse("section { max-width: 70%; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.maxWidthPercent.has_value());
+    EXPECT_FLOAT_EQ(props.maxWidthPercent.value(), 70.0f);
+}
