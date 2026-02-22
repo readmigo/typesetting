@@ -40,7 +40,7 @@ private:
     void applyProperties(const CSSProperties& props, BlockComputedStyle& style, float baseFontSize, bool importantOnly = false) const;
 
     /// Apply user Style overrides as final layer
-    void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet, bool cssLineHeightSet) const;
+    void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet, bool cssLineHeightSet, bool cssTextAlignSet) const;
 
     /// Apply CSS properties onto an inline computed style (importantOnly filters by !important flag)
     void applyInlineProperties(const CSSProperties& props, InlineComputedStyle& style, bool importantOnly = false) const;

@@ -80,7 +80,7 @@ ResolvedStyles StyleResolver::resolve(
             }
         }
 
-        std::sort(matches.begin(), matches.end(),
+        std::stable_sort(matches.begin(), matches.end(),
                   [](const CSSRule* a, const CSSRule* b) {
                       return a->selector.specificity() < b->selector.specificity();
                   });
@@ -88,9 +88,11 @@ ResolvedStyles StyleResolver::resolve(
         float baseFontSize = userStyle.font.size;
         bool cssFontSizeSet = false;
         bool cssLineHeightSet = false;
+        bool cssTextAlignSet = false;
         for (const auto* rule : matches) {
             if (rule->properties.fontSize.has_value()) cssFontSizeSet = true;
             if (rule->properties.lineHeight.has_value()) cssLineHeightSet = true;
+            if (rule->properties.textAlign.has_value()) cssTextAlignSet = true;
         }
         // Pass 1: apply non-important properties
         for (const auto* rule : matches) {
@@ -101,7 +103,7 @@ ResolvedStyles StyleResolver::resolve(
             applyProperties(rule->properties, style, baseFontSize, true);
         }
 
-        applyUserOverrides(style, userStyle, block, cssFontSizeSet, cssLineHeightSet);
+        applyUserOverrides(style, userStyle, block, cssFontSizeSet, cssLineHeightSet, cssTextAlignSet);
         result.blockStyles.push_back(std::move(style));
 
         // === Inline resolution ===
@@ -115,7 +117,7 @@ ResolvedStyles StyleResolver::resolve(
                     inlineMatches.push_back(&rule);
                 }
             }
-            std::sort(inlineMatches.begin(), inlineMatches.end(),
+            std::stable_sort(inlineMatches.begin(), inlineMatches.end(),
                       [](const CSSRule* a, const CSSRule* b) {
                           return a->selector.specificity() < b->selector.specificity();
                       });
@@ -228,7 +230,7 @@ ResolvedStyles StyleResolver::resolve(
                             spanMatches.push_back(&rule);
                         }
                     }
-                    std::sort(spanMatches.begin(), spanMatches.end(),
+                    std::stable_sort(spanMatches.begin(), spanMatches.end(),
                               [](const CSSRule* a, const CSSRule* b) {
                                   return a->selector.specificity() < b->selector.specificity();
                               });
@@ -406,8 +408,9 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
 
     // Helper: check if a parent selector matches the block's parent metadata
     auto parentMatches = [&](const CSSSelector& parentSel) -> bool {
+        bool match = false;
         if (parentSel.type == SelectorType::Element) {
-            bool match = true;
+            match = true;
             if (!parentSel.element.empty()) {
                 match = iequals(parentSel.element, block.parentTag);
             }
@@ -417,17 +420,18 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
             if (match && !parentSel.id.empty()) {
                 match = (block.parentId == parentSel.id);
             }
-            return match;
         } else if (parentSel.type == SelectorType::Class) {
-            return containsClass(block.parentClassName, parentSel.className);
+            match = containsClass(block.parentClassName, parentSel.className);
         } else if (parentSel.type == SelectorType::Attribute) {
-            return containsClass(block.parentEpubType, parentSel.attributeValue);
+            match = containsClass(block.parentEpubType, parentSel.attributeValue);
         } else if (parentSel.type == SelectorType::Id) {
-            return block.parentId == parentSel.id;
+            match = (block.parentId == parentSel.id);
         } else if (parentSel.type == SelectorType::Universal) {
-            return true;
+            match = true;
         }
-        return false;
+        // Block only stores one parent level; reject if selector has deeper ancestors we can't verify
+        if (match && parentSel.parent) return false;
+        return match;
     };
 
     switch (selector.type) {
@@ -457,16 +461,16 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
             }
             if (!mainMatch) return false;
 
-            // Check className on main element (compound like p.class in descendant)
-            if (!selector.element.empty() && selector.element != "*" &&
-                !selector.className.empty()) {
+            // Check className on main element (compound like p.class or *.class in descendant)
+            if (!selector.className.empty()) {
                 if (!containsClass(block.className, selector.className)) return false;
             }
 
             // Check pseudo-class on main element
             if (!selector.pseudoClass.empty()) {
-                if (selector.pseudoClass == "first-child" && !block.isFirstChild) {
-                    return false;
+                if (selector.pseudoClass == "first-child") {
+                    if (!block.previousSiblingTags.empty()) return false;
+                    if (!block.isFirstChild) return false;
                 }
                 if (selector.pseudoClass == "last-child" && !block.isLastChild) {
                     return false;
@@ -505,6 +509,8 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
             if (!iequals(selector.element, effectiveTag)) return false;
             if (!selector.className.empty() && !containsClass(block.className, selector.className)) return false;
             if (selector.pseudoClass == "last-child") return block.isLastChild;
+            // Defensive: blocks with previous siblings are not first-child
+            if (!block.previousSiblingTags.empty()) return false;
             return block.isFirstChild;
         }
 
@@ -649,7 +655,7 @@ void StyleResolver::applyProperties(
 
 void StyleResolver::applyUserOverrides(
     BlockComputedStyle& style, const Style& userStyle, const Block& block,
-    bool cssFontSizeSet, bool cssLineHeightSet) const {
+    bool cssFontSizeSet, bool cssLineHeightSet, bool cssTextAlignSet) const {
 
     // Font family: always override
     style.font.family = userStyle.font.family;
@@ -670,8 +676,10 @@ void StyleResolver::applyUserOverrides(
     style.wordSpacing = userStyle.wordSpacing;
     style.paragraphSpacingAfter = userStyle.paragraphSpacing;
 
-    // Alignment: override UNLESS block is a heading with Center alignment
-    if (!(isHeadingType(block.type) && style.alignment == TextAlignment::Center)) {
+    // Alignment: override UNLESS CSS explicitly set text-align,
+    // or block is a heading with Center alignment
+    if (!cssTextAlignSet &&
+        !(isHeadingType(block.type) && style.alignment == TextAlignment::Center)) {
         style.alignment = userStyle.alignment;
     }
 

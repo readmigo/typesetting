@@ -11,6 +11,7 @@ add_executable(typesetting_tests
     test_layout.cpp
     test_css.cpp
     test_style_resolver.cpp
+    test_se_integration.cpp
 )
 
 target_link_libraries(typesetting_tests

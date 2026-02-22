@@ -1,0 +1,57 @@
+@charset "utf-8";
+@namespace epub "http://www.idpf.org/2007/ops";
+
+section.epub-type-contains-word-dedication p{
+	font-variant: small-caps;
+	margin-top: 5em;
+	text-align: center;
+	text-indent: 0;
+}
+
+.epub-type-contains-word-z3998-verse p{
+	text-align: left;
+	text-indent: 0;
+}
+
+.epub-type-contains-word-z3998-verse p > span{
+	display: block;
+	padding-left: 1em;
+	text-indent: -1em;
+}
+
+.epub-type-contains-word-z3998-verse p > span + br{
+	display: none;
+}
+
+.epub-type-contains-word-z3998-verse p + p{
+	margin-top: 1em;
+}
+
+p span.i1{
+	padding-left: 2em;
+}
+
+.epub-type-contains-word-se-letter-dateline{
+	margin-top: 1em;
+	text-align: right;
+}
+
+.epub-type-contains-word-z3998-letter header{
+	margin-bottom: 1em;
+	text-align: left;
+}
+
+footer{
+	margin-top: 1em;
+	text-align: right;
+}
+
+.epub-type-contains-word-z3998-salutation,
+.epub-type-contains-word-z3998-recipient{
+	font-variant: small-caps;
+	text-indent: 0;
+}
+
+.epub-type-contains-word-z3998-signature{
+	font-variant: small-caps;
+}
