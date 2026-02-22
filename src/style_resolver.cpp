@@ -459,6 +459,10 @@ void StyleResolver::applyProperties(
         style.hangingPunctuation = props.hangingPunctuation.value();
     }
 
+    if (props.widthPercent.has_value() && shouldApply(kImpWidthPercent)) {
+        style.widthPercent = props.widthPercent.value();
+    }
+
     if (props.maxWidthPercent.has_value() && shouldApply(kImpMaxWidthPercent)) {
         style.maxWidthPercent = props.maxWidthPercent.value();
     }

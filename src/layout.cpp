@@ -370,6 +370,14 @@ private:
             float availableWidth = baseAvailableWidth;
             float blockOffsetX = bstyle.marginLeft + bstyle.paddingLeft;
 
+            // Apply width constraint (fixed percentage)
+            if (bstyle.widthPercent > 0) {
+                float fixedWidth = contentWidth * bstyle.widthPercent / 100.0f;
+                if (fixedWidth < availableWidth) {
+                    availableWidth = fixedWidth;
+                }
+            }
+
             // Apply max-width constraint
             if (bstyle.maxWidthPercent < 100.0f) {
                 float maxWidth = contentWidth * bstyle.maxWidthPercent / 100.0f;

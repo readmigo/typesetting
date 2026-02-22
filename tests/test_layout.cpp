@@ -1321,3 +1321,42 @@ TEST(LayoutTest, DedicationPageLayout) {
     EXPECT_GT(dedicationLine.x, 20.0f + 10.0f);  // noticeably right of page margin
     EXPECT_NEAR(dedicationLine.x, 74.0f, 2.0f);
 }
+
+TEST(LayoutTest, WidthPercentConstrainsBlock) {
+    auto platform = std::make_shared<MockPlatformAdapter>();
+    platform->charWidth = 8.0f;
+    LayoutEngine engine(platform);
+
+    Chapter chapter;
+    chapter.id = "test";
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.inlines.push_back(InlineElement::plain("Hello"));
+    chapter.blocks.push_back(block);
+
+    // Style with width: 50% and horizontal centering
+    std::vector<BlockComputedStyle> styles(1);
+    styles[0].font.size = 16.0f;
+    styles[0].font.family = "test";
+    styles[0].lineSpacingMultiplier = 1.4f;
+    styles[0].paragraphSpacingAfter = 12.0f;
+    styles[0].textIndent = 0;
+    styles[0].widthPercent = 50.0f;
+    styles[0].horizontalCentering = true;
+
+    PageSize pageSize{400.0f, 600.0f};
+    auto result = engine.layoutChapter(chapter, styles, pageSize);
+
+    ASSERT_FALSE(result.pages.empty());
+    ASSERT_FALSE(result.pages[0].lines.empty());
+
+    // Default Style: marginLeft=20, marginRight=20
+    // contentWidth = 400 - 20 - 20 = 360
+    // width 50% = 180
+    // centeringOffset = (360 - 180) / 2 = 90
+    // line.x = contentX(20) + 90 = 110
+    auto& line = result.pages[0].lines[0];
+    EXPECT_NEAR(line.x, 110.0f, 1.0f);
+}

@@ -106,6 +106,7 @@ struct BlockComputedStyle {
     bool hangingPunctuation = false;
 
     // Block sizing
+    float widthPercent = 0;           // width as percentage (0 = no constraint)
     float maxWidthPercent = 100.0f;  // max-width as percentage (100 = no constraint)
     bool horizontalCentering = false;  // margin-left: auto + margin-right: auto
 

@@ -1278,3 +1278,19 @@ TEST(StyleResolverTest, ImportantOverridesHigherSpecificity) {
     // !important on lower-specificity rule should win
     EXPECT_EQ(resolved.inlineStyles[0][0].fontStyle.value_or(FontStyle::Italic), FontStyle::Normal);
 }
+
+TEST(StyleResolverTest, WidthPercentOnBlock) {
+    auto sheet = CSSStylesheet::parse("p { width: 75%; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].widthPercent, 75.0f);
+}
