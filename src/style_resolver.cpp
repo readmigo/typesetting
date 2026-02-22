@@ -637,6 +637,11 @@ void StyleResolver::applyInlineProperties(
     if (props.whiteSpace.has_value() && shouldApply(kImpWhiteSpace)) {
         style.noWrap = (props.whiteSpace.value() == "nowrap");
     }
+    if (props.display.has_value() && shouldApply(kImpDisplay)) {
+        if (props.display.value() == "block") {
+            style.displayBlock = true;
+        }
+    }
 }
 
 } // namespace typesetting

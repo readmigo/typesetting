@@ -1329,3 +1329,54 @@ TEST(StyleResolverTest, LineHeightZeroFromCSS) {
     ASSERT_EQ(resolved.blockStyles.size(), 1);
     EXPECT_FLOAT_EQ(resolved.blockStyles[0].lineSpacingMultiplier, 0.0f);
 }
+
+// =============================================================================
+// MARK: - Phase 5: Display Block on Inline Spans
+// =============================================================================
+
+TEST(StyleResolverTest, InlineDisplayBlockDetected) {
+    auto sheet = CSSStylesheet::parse(
+        ".verse p > span { display: block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentClassName = "verse";
+    InlineElement span1;
+    span1.type = InlineType::Text;
+    span1.htmlTag = "span";
+    span1.text = "First verse line";
+    block.inlines.push_back(span1);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    ASSERT_EQ(resolved.inlineStyles.size(), 1);
+    ASSERT_EQ(resolved.inlineStyles[0].size(), 1);
+    EXPECT_TRUE(resolved.inlineStyles[0][0].displayBlock);
+}
+
+TEST(StyleResolverTest, InlineDisplayBlockNotSetForNonMatch) {
+    auto sheet = CSSStylesheet::parse(
+        ".verse p > span { display: block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentClassName = "other";  // wrong class
+    InlineElement span1;
+    span1.type = InlineType::Text;
+    span1.htmlTag = "span";
+    span1.text = "Not a verse line";
+    block.inlines.push_back(span1);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    ASSERT_EQ(resolved.inlineStyles[0].size(), 1);
+    EXPECT_FALSE(resolved.inlineStyles[0][0].displayBlock);
+}

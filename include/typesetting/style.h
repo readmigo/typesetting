@@ -127,6 +127,7 @@ struct InlineComputedStyle {
     bool isSuperscript = false;    // vertical-align: super
     bool isSubscript = false;      // vertical-align: sub
     bool noWrap = false;           // white-space: nowrap
+    bool displayBlock = false;     // display: block (promote inline to block)
 };
 
 } // namespace typesetting

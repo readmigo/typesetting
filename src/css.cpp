@@ -267,6 +267,13 @@ CSSSelector parseSelector(const std::string& selectorStr) {
             currentParent->parent = pp;
             currentParent = pp;
         }
+
+        // Promote intermediate parent to Descendant if it has ancestors,
+        // so selectorMatches checks the full ancestor chain
+        if (parent->parent &&
+            (parent->type == SelectorType::Element || parent->type == SelectorType::Class)) {
+            parent->type = SelectorType::Descendant;
+        }
     } else if (result.type != SelectorType::AdjacentSibling) {
         // All parts connected by space/> with no '+': pure descendant
         result.type = SelectorType::Descendant;
