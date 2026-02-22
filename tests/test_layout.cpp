@@ -1447,3 +1447,41 @@ TEST(LayoutTest, PoetryVerseDisplayBlock) {
     EXPECT_TRUE(foundFirst);
     EXPECT_TRUE(foundSecond);
 }
+
+TEST(LayoutTest, PoetryHangingIndent) {
+    // Verify padding-left + text-indent: -1em creates hanging indent on promoted spans
+    auto platform = std::make_shared<MockPlatformAdapter>();
+    platform->charWidth = 8.0f;
+    Engine engine(platform);
+
+    std::string css = ".verse p > span { display: block; padding-left: 1em; text-indent: -1em; }";
+    // Single long verse line that should wrap
+    std::string html =
+        "<section class=\"verse\">"
+        "<p>"
+        "<span>A very long verse line that should wrap around to demonstrate the hanging indent effect</span>"
+        "</p>"
+        "</section>";
+
+    Style style;
+    style.font.size = 16.0f;
+    // Narrow page to force wrapping
+    PageSize pageSize{200.0f, 800.0f};
+
+    auto result = engine.layoutHTML(html, css, "ch1", style, pageSize);
+    ASSERT_GT(result.pages.size(), 0);
+
+    auto& page = result.pages[0];
+    // Should have at least 2 lines (wrapped)
+    ASSERT_GE(page.lines.size(), 2);
+
+    // Find the first and second line runs
+    float firstLineX = page.lines[0].runs[0].x;
+    float secondLineX = page.lines[1].runs[0].x;
+
+    // With padding-left:1em + text-indent:-1em:
+    // First line: offset = paddingLeft + textIndent = 1em - 1em = 0 (at margin)
+    // Continuation lines: offset = paddingLeft = 1em (indented)
+    // So second line should be further right than first line
+    EXPECT_GT(secondLineX, firstLineX);
+}
