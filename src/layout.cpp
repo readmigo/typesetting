@@ -366,8 +366,23 @@ private:
             }
 
             // Available width accounting for block margins and padding
-            float availableWidth = contentWidth - bstyle.marginLeft - bstyle.marginRight - bstyle.paddingLeft;
+            float baseAvailableWidth = contentWidth - bstyle.marginLeft - bstyle.marginRight - bstyle.paddingLeft;
+            float availableWidth = baseAvailableWidth;
             float blockOffsetX = bstyle.marginLeft + bstyle.paddingLeft;
+
+            // Apply max-width constraint
+            if (bstyle.maxWidthPercent < 100.0f) {
+                float maxWidth = contentWidth * bstyle.maxWidthPercent / 100.0f;
+                if (maxWidth < availableWidth) {
+                    availableWidth = maxWidth;
+                }
+            }
+
+            // Apply horizontal centering (margin: auto)
+            if (bstyle.horizontalCentering && availableWidth < baseAvailableWidth) {
+                float extraSpace = baseAvailableWidth - availableWidth;
+                blockOffsetX = bstyle.paddingLeft + extraSpace / 2.0f;
+            }
 
             // Layout text into lines
             static const std::vector<InlineComputedStyle> emptyInlineStyles;

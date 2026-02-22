@@ -1229,3 +1229,47 @@ TEST(DocumentTest, ParseLastChild) {
     EXPECT_FALSE(blocks[2].isFirstChild);
     EXPECT_TRUE(blocks[2].isLastChild);
 }
+
+// =============================================================================
+// MARK: - Phase 3: max-width and centering layout tests
+// =============================================================================
+
+TEST(LayoutTest, MaxWidthWithCentering) {
+    auto platform = std::make_shared<MockPlatformAdapter>();
+    platform->charWidth = 8.0f;
+    LayoutEngine engine(platform);
+
+    Chapter chapter;
+    chapter.id = "test";
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.inlines.push_back(InlineElement::plain("Hello"));
+    chapter.blocks.push_back(block);
+
+    // Style with max-width 50% and horizontal centering
+    std::vector<BlockComputedStyle> styles(1);
+    styles[0].font.size = 16.0f;
+    styles[0].font.family = "test";
+    styles[0].lineSpacingMultiplier = 1.4f;
+    styles[0].paragraphSpacingAfter = 12.0f;
+    styles[0].textIndent = 0;
+    styles[0].maxWidthPercent = 50.0f;
+    styles[0].horizontalCentering = true;
+
+    PageSize pageSize{400.0f, 600.0f};
+    auto result = engine.layoutChapter(chapter, styles, pageSize);
+
+    ASSERT_FALSE(result.pages.empty());
+    ASSERT_FALSE(result.pages[0].lines.empty());
+
+    // BlockComputedStyle overload creates default Style: marginLeft=20, marginRight=20
+    // contentWidth = 400 - 20 - 20 = 360
+    // maxWidth = 360 * 50% = 180
+    // centeringOffset = (360 - 180) / 2 = 90
+    // blockOffsetX = paddingLeft(0) + 90 = 90
+    // line.x = contentX(20) + blockOffsetX(90) = 110
+    auto& line = result.pages[0].lines[0];
+    EXPECT_NEAR(line.x, 110.0f, 1.0f);
+}
