@@ -558,3 +558,27 @@ TEST(CSSTest, ParseImportantHangingPunctuation) {
     EXPECT_FALSE(props.hangingPunctuation.value());
     EXPECT_NE(props.importantFlags & typesetting::kImpHangingPunct, 0u);
 }
+
+TEST(CSSTest, ParseLineHeightNumber) {
+    auto sheet = CSSStylesheet::parse("p { line-height: 1.5; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.lineHeight.has_value());
+    EXPECT_FLOAT_EQ(props.lineHeight.value(), 1.5f);
+}
+
+TEST(CSSTest, ParseLineHeightEm) {
+    auto sheet = CSSStylesheet::parse("p { line-height: 2em; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.lineHeight.has_value());
+    EXPECT_FLOAT_EQ(props.lineHeight.value(), 2.0f);
+}
+
+TEST(CSSTest, ParseLineHeightZero) {
+    auto sheet = CSSStylesheet::parse("p { line-height: 0; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.lineHeight.has_value());
+    EXPECT_FLOAT_EQ(props.lineHeight.value(), 0.0f);
+}

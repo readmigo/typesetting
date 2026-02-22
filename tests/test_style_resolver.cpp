@@ -1294,3 +1294,38 @@ TEST(StyleResolverTest, WidthPercentOnBlock) {
     ASSERT_EQ(resolved.blockStyles.size(), 1);
     EXPECT_FLOAT_EQ(resolved.blockStyles[0].widthPercent, 75.0f);
 }
+
+TEST(StyleResolverTest, LineHeightFromCSS) {
+    auto sheet = CSSStylesheet::parse("p { line-height: 2; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+    userStyle.lineSpacingMultiplier = 1.4f;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    // CSS line-height should override user's lineSpacingMultiplier
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].lineSpacingMultiplier, 2.0f);
+}
+
+TEST(StyleResolverTest, LineHeightZeroFromCSS) {
+    auto sheet = CSSStylesheet::parse("p { line-height: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+    userStyle.lineSpacingMultiplier = 1.4f;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].lineSpacingMultiplier, 0.0f);
+}

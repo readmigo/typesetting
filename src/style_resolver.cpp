@@ -87,8 +87,10 @@ ResolvedStyles StyleResolver::resolve(
 
         float baseFontSize = userStyle.font.size;
         bool cssFontSizeSet = false;
+        bool cssLineHeightSet = false;
         for (const auto* rule : matches) {
             if (rule->properties.fontSize.has_value()) cssFontSizeSet = true;
+            if (rule->properties.lineHeight.has_value()) cssLineHeightSet = true;
         }
         // Pass 1: apply non-important properties
         for (const auto* rule : matches) {
@@ -99,7 +101,7 @@ ResolvedStyles StyleResolver::resolve(
             applyProperties(rule->properties, style, baseFontSize, true);
         }
 
-        applyUserOverrides(style, userStyle, block, cssFontSizeSet);
+        applyUserOverrides(style, userStyle, block, cssFontSizeSet, cssLineHeightSet);
         result.blockStyles.push_back(std::move(style));
 
         // === Inline resolution ===
@@ -459,6 +461,16 @@ void StyleResolver::applyProperties(
         style.hangingPunctuation = props.hangingPunctuation.value();
     }
 
+    if (props.lineHeight.has_value() && shouldApply(kImpLineHeight)) {
+        float val = props.lineHeight.value();
+        if (val < 0) {
+            // Negative = px value, convert to multiplier
+            style.lineSpacingMultiplier = (-val) / style.font.size;
+        } else {
+            style.lineSpacingMultiplier = val;
+        }
+    }
+
     if (props.widthPercent.has_value() && shouldApply(kImpWidthPercent)) {
         style.widthPercent = props.widthPercent.value();
     }
@@ -489,7 +501,8 @@ void StyleResolver::applyProperties(
 }
 
 void StyleResolver::applyUserOverrides(
-    BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet) const {
+    BlockComputedStyle& style, const Style& userStyle, const Block& block,
+    bool cssFontSizeSet, bool cssLineHeightSet) const {
 
     // Font family: always override
     style.font.family = userStyle.font.family;
@@ -502,8 +515,10 @@ void StyleResolver::applyUserOverrides(
         style.font.size = userStyle.font.size;
     }
 
-    // Spacing: always override
-    style.lineSpacingMultiplier = userStyle.lineSpacingMultiplier;
+    // Spacing: override unless CSS explicitly set line-height
+    if (!cssLineHeightSet) {
+        style.lineSpacingMultiplier = userStyle.lineSpacingMultiplier;
+    }
     style.letterSpacing = userStyle.letterSpacing;
     style.wordSpacing = userStyle.wordSpacing;
     style.paragraphSpacingAfter = userStyle.paragraphSpacing;

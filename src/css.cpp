@@ -532,6 +532,21 @@ CSSProperties parseProperties(const std::string& block) {
             if (parseNumericValue(value, num, unit) && unit == "%") {
                 props.maxWidthPercent = num;
             }
+        } else if (property == "line-height") {
+            if (value == "normal") {
+                // Don't set — use default
+            } else {
+                float num;
+                std::string unit;
+                if (parseNumericValue(value, num, unit)) {
+                    if (unit.empty() || unit == "em") {
+                        props.lineHeight = num;  // unitless or em = multiplier
+                    } else if (unit == "px") {
+                        // Store as negative to signal px value
+                        props.lineHeight = -num;
+                    }
+                }
+            }
         }
 
         // Set important flag if detected
@@ -657,6 +672,7 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.maxWidthPercent.has_value()) maxWidthPercent = other.maxWidthPercent;
     if (other.marginLeftAuto.has_value()) marginLeftAuto = other.marginLeftAuto;
     if (other.marginRightAuto.has_value()) marginRightAuto = other.marginRightAuto;
+    if (other.lineHeight.has_value()) lineHeight = other.lineHeight;
     importantFlags |= other.importantFlags;
 }
 

@@ -95,6 +95,7 @@ struct CSSProperties {
     std::optional<float> maxWidthPercent;   // percentage (0-100)
     std::optional<bool> marginLeftAuto;    // true if margin-left is "auto"
     std::optional<bool> marginRightAuto;   // true if margin-right is "auto"
+    std::optional<float> lineHeight;       // multiplier (1.5 = 150% of font-size; negative = px value)
 
     uint32_t importantFlags = 0;  // Bitfield of kImp* flags
 
