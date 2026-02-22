@@ -80,7 +80,8 @@ LayoutResult Engine::layoutHTML(const std::string& html,
     lastChapterId_ = chapterId;
 
     StyleResolver resolver(lastStylesheet_);
-    lastStyles_ = resolver.resolve(lastBlocks_, style);
+    auto resolved = resolver.resolve(lastBlocks_, style);
+    lastStyles_ = resolved.blockStyles;
 
     auto result = layoutEngine_->layoutChapter(
         Chapter{chapterId, "", 0, lastBlocks_}, lastStyles_, pageSize);
@@ -138,7 +139,8 @@ LayoutResult Engine::relayout(const Style& style,
     LayoutResult result;
     if (hasStylesheet_) {
         StyleResolver resolver(lastStylesheet_);
-        lastStyles_ = resolver.resolve(lastBlocks_, style);
+        auto resolved = resolver.resolve(lastBlocks_, style);
+        lastStyles_ = resolved.blockStyles;
         result = layoutEngine_->layoutChapter(
             Chapter{lastChapterId_, "", 0, lastBlocks_}, lastStyles_, pageSize);
     } else {

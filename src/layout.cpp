@@ -16,12 +16,10 @@ public:
     LayoutResult layoutChapter(const Chapter& chapter,
                                const Style& style,
                                const PageSize& pageSize) {
-        // Convert Style into per-block BlockComputedStyles using
-        // a StyleResolver with an empty stylesheet (gives defaults).
         CSSStylesheet emptySheet;
         StyleResolver resolver(emptySheet);
-        auto styles = resolver.resolve(chapter.blocks, style);
-        return layoutChapter(chapter, styles, style, pageSize);
+        auto resolved = resolver.resolve(chapter.blocks, style);
+        return layoutChapter(chapter, resolved, style, pageSize);
     }
 
     // ---------------------------------------------------------------
@@ -30,32 +28,34 @@ public:
     LayoutResult layoutChapter(const Chapter& chapter,
                                const std::vector<BlockComputedStyle>& styles,
                                const PageSize& pageSize) {
-        // We need a user Style for page margins.
-        // Extract page-level settings from the first style (or use defaults).
         Style pageStyle;
-        // BlockComputedStyle doesn't carry page margins, so use defaults.
-        return layoutChapter(chapter, styles, pageStyle, pageSize);
+        ResolvedStyles resolved;
+        resolved.blockStyles = styles;
+        resolved.inlineStyles.resize(styles.size()); // empty inline styles per block
+        return layoutChapter(chapter, resolved, pageStyle, pageSize);
     }
 
     std::vector<Line> layoutBlock(const Block& block,
                                   const Style& style,
                                   float availableWidth) {
-        // Build a default BlockComputedStyle for this block
         CSSStylesheet emptySheet;
         StyleResolver resolver(emptySheet);
         std::vector<Block> singleBlock = {block};
-        auto computedStyles = resolver.resolve(singleBlock, style);
-        return layoutBlockLines(block, computedStyles[0], availableWidth, 0);
+        auto resolved = resolver.resolve(singleBlock, style);
+        std::vector<InlineComputedStyle> emptyInlineStyles;
+        return layoutBlockLines(block, resolved.blockStyles[0],
+                                resolved.inlineStyles.empty() ? emptyInlineStyles : resolved.inlineStyles[0],
+                                availableWidth, 0);
     }
 
 private:
     std::shared_ptr<PlatformAdapter> platform_;
 
     // ---------------------------------------------------------------
-    // Core implementation with BlockComputedStyle + page margins from Style
+    // Core implementation with ResolvedStyles + page margins from Style
     // ---------------------------------------------------------------
     LayoutResult layoutChapter(const Chapter& chapter,
-                               const std::vector<BlockComputedStyle>& styles,
+                               const ResolvedStyles& resolved,
                                const Style& pageStyle,
                                const PageSize& pageSize) {
         LayoutResult result;
@@ -96,7 +96,7 @@ private:
 
         for (int blockIdx = 0; blockIdx < static_cast<int>(chapter.blocks.size()); ++blockIdx) {
             const auto& block = chapter.blocks[blockIdx];
-            const auto& bstyle = styles[blockIdx];
+            const auto& bstyle = resolved.blockStyles[blockIdx];
 
             // Hidden blocks (display: none) — skip entirely
             if (bstyle.hidden) {
@@ -196,7 +196,7 @@ private:
                     captionStyle.alignment = TextAlignment::Center;
                     captionStyle.textIndent = 0;
 
-                    auto captionLines = layoutBlockLines(captionBlock, captionStyle, contentWidth, blockIdx);
+                    auto captionLines = layoutBlockLines(captionBlock, captionStyle, {}, contentWidth, blockIdx);
                     for (auto& line : captionLines) {
                         if (cursorY + line.height > contentHeight && !currentPage.lines.empty()) {
                             startNewPage(blockIdx);
@@ -266,7 +266,7 @@ private:
                                 cellStyle.font.weight = FontWeight::Bold;
                             }
 
-                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, thisCellWidth, blockIdx);
+                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, {}, thisCellWidth, blockIdx);
                             float cellHeight = cellPadding * 2;
                             for (const auto& cl : cellLines) {
                                 cellHeight += cl.height;
@@ -296,7 +296,7 @@ private:
                                 cellStyle.font.weight = FontWeight::Bold;
                             }
 
-                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, thisCellWidth, blockIdx);
+                            auto cellLines = layoutBlockLines(cellBlock, cellStyle, {}, thisCellWidth, blockIdx);
                             float cellCursorY = cursorY + cellPadding;
 
                             for (auto& line : cellLines) {
@@ -342,7 +342,10 @@ private:
             float blockOffsetX = bstyle.marginLeft + bstyle.paddingLeft;
 
             // Layout text into lines
-            std::vector<Line> lines = layoutBlockLines(block, bstyle, availableWidth, blockIdx);
+            static const std::vector<InlineComputedStyle> emptyInlineStyles;
+            const auto& blockInlineStyles = (blockIdx < static_cast<int>(resolved.inlineStyles.size()))
+                ? resolved.inlineStyles[blockIdx] : emptyInlineStyles;
+            std::vector<Line> lines = layoutBlockLines(block, bstyle, blockInlineStyles, availableWidth, blockIdx);
 
             // Place lines on pages
             for (size_t lineIdx = 0; lineIdx < lines.size(); ++lineIdx) {
@@ -403,6 +406,7 @@ private:
     // ---------------------------------------------------------------
     std::vector<Line> layoutBlockLines(const Block& block,
                                         const BlockComputedStyle& bstyle,
+                                        const std::vector<InlineComputedStyle>& inlineStyles,
                                         float availableWidth,
                                         int blockIndex) {
         std::vector<Line> lines;
@@ -515,6 +519,29 @@ private:
             if (inl.isFootnoteRef) {
                 inlineFont.size = bstyle.font.size * 0.7f;
                 runIsSuperscript = true;
+            }
+
+            // CSS overrides from InlineComputedStyle
+            if (inIdx < static_cast<int>(inlineStyles.size())) {
+                const auto& istyle = inlineStyles[inIdx];
+                if (istyle.fontSizeMultiplier) {
+                    inlineFont.size = bstyle.font.size * *istyle.fontSizeMultiplier;
+                }
+                if (istyle.fontStyle) {
+                    inlineFont.style = *istyle.fontStyle;
+                }
+                if (istyle.fontWeight) {
+                    inlineFont.weight = *istyle.fontWeight;
+                }
+                if (istyle.smallCaps.has_value()) {
+                    runSmallCaps = *istyle.smallCaps;
+                }
+                if (istyle.isSuperscript) {
+                    runIsSuperscript = true;
+                    if (!istyle.fontSizeMultiplier) {
+                        inlineFont.size = bstyle.font.size * 0.7f;
+                    }
+                }
             }
 
             // Get metrics for this inline's font

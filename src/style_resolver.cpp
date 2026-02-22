@@ -61,18 +61,18 @@ bool isHeadingType(BlockType type) {
 StyleResolver::StyleResolver(const CSSStylesheet& stylesheet)
     : stylesheet_(stylesheet) {}
 
-std::vector<BlockComputedStyle> StyleResolver::resolve(
+ResolvedStyles StyleResolver::resolve(
     const std::vector<Block>& blocks,
     const Style& userStyle) const {
 
-    std::vector<BlockComputedStyle> result;
-    result.reserve(blocks.size());
+    ResolvedStyles result;
+    result.blockStyles.reserve(blocks.size());
+    result.inlineStyles.reserve(blocks.size());
 
     for (const auto& block : blocks) {
-        // 1. Start with defaults based on BlockType
+        // === Block resolution (existing logic) ===
         BlockComputedStyle style = defaultStyleForBlock(block, userStyle);
 
-        // 2. Collect matching CSS rules
         std::vector<const CSSRule*> matches;
         for (const auto& rule : stylesheet_.rules) {
             if (selectorMatches(rule.selector, block)) {
@@ -80,13 +80,11 @@ std::vector<BlockComputedStyle> StyleResolver::resolve(
             }
         }
 
-        // 3. Sort by specificity (ascending — lower specificity applied first)
         std::sort(matches.begin(), matches.end(),
                   [](const CSSRule* a, const CSSRule* b) {
                       return a->selector.specificity() < b->selector.specificity();
                   });
 
-        // 4. Apply each matched rule's properties in order
         float baseFontSize = userStyle.font.size;
         bool cssFontSizeSet = false;
         for (const auto* rule : matches) {
@@ -94,13 +92,33 @@ std::vector<BlockComputedStyle> StyleResolver::resolve(
             applyProperties(rule->properties, style, baseFontSize);
         }
 
-        // 5. Apply user overrides as final layer
         applyUserOverrides(style, userStyle, block, cssFontSizeSet);
+        result.blockStyles.push_back(std::move(style));
 
-        result.push_back(std::move(style));
+        // === Inline resolution ===
+        std::vector<InlineComputedStyle> inlineStyles;
+        inlineStyles.reserve(block.inlines.size());
+        for (const auto& inl : block.inlines) {
+            InlineComputedStyle istyle;
+            std::vector<const CSSRule*> inlineMatches;
+            for (const auto& rule : stylesheet_.rules) {
+                if (inlineSelectorMatches(rule.selector, inl, block)) {
+                    inlineMatches.push_back(&rule);
+                }
+            }
+            std::sort(inlineMatches.begin(), inlineMatches.end(),
+                      [](const CSSRule* a, const CSSRule* b) {
+                          return a->selector.specificity() < b->selector.specificity();
+                      });
+            for (const auto* rule : inlineMatches) {
+                applyInlineProperties(rule->properties, istyle);
+            }
+            inlineStyles.push_back(std::move(istyle));
+        }
+        result.inlineStyles.push_back(std::move(inlineStyles));
     }
 
-    TS_LOGI("StyleResolver::resolve: blocks=%zu rules=%zu", result.size(), stylesheet_.rules.size());
+    TS_LOGI("StyleResolver::resolve: blocks=%zu rules=%zu", result.blockStyles.size(), stylesheet_.rules.size());
     return result;
 }
 
@@ -455,6 +473,87 @@ void StyleResolver::applyUserOverrides(
         style.hyphens = userStyle.hyphenation;
     }
     // If CSS set hyphens=false, keep it false regardless of user preference
+}
+
+bool StyleResolver::inlineSelectorMatches(
+    const CSSSelector& selector, const InlineElement& inl, const Block& parentBlock) const {
+
+    // Check if a tag name is an inline tag
+    auto isInlineTag = [](const std::string& tag) -> bool {
+        return tag == "a" || tag == "abbr" || tag == "span" ||
+               tag == "b" || tag == "i" || tag == "em" || tag == "strong" ||
+               tag == "cite" || tag == "code" || tag == "small" ||
+               tag == "sub" || tag == "sup";
+    };
+
+    switch (selector.type) {
+        case SelectorType::Element:
+            if (inl.htmlTag.empty()) return false;
+            if (!isInlineTag(selector.element)) return false;
+            if (!selector.className.empty()) {
+                return iequals(selector.element, inl.htmlTag) &&
+                       containsClass(inl.className, selector.className);
+            }
+            return iequals(selector.element, inl.htmlTag);
+
+        case SelectorType::Class:
+            return containsClass(inl.className, selector.className);
+
+        case SelectorType::Attribute:
+            return containsClass(inl.epubType, selector.attributeValue);
+
+        case SelectorType::Descendant: {
+            // Leaf must match inline
+            bool leafMatch = false;
+            if (selector.element == "*") {
+                leafMatch = true;
+            } else if (!selector.element.empty()) {
+                if (inl.htmlTag.empty()) return false;
+                if (!isInlineTag(selector.element)) return false;
+                leafMatch = iequals(selector.element, inl.htmlTag);
+            } else if (!selector.className.empty()) {
+                leafMatch = containsClass(inl.className, selector.className);
+            }
+            if (!leafMatch) return false;
+
+            // Compound: element + className
+            if (!selector.element.empty() && selector.element != "*" &&
+                !selector.className.empty()) {
+                if (!containsClass(inl.className, selector.className)) return false;
+            }
+
+            // Parent must match the block
+            if (!selector.parent) return false;
+            return selectorMatches(*selector.parent, parentBlock);
+        }
+
+        case SelectorType::Universal:
+            return true;
+
+        default:
+            return false;
+    }
+}
+
+void StyleResolver::applyInlineProperties(
+    const CSSProperties& props, InlineComputedStyle& style) const {
+
+    if (props.fontSize.has_value()) {
+        style.fontSizeMultiplier = props.fontSize.value();
+    }
+    if (props.fontStyle.has_value()) {
+        style.fontStyle = props.fontStyle.value();
+    }
+    if (props.fontWeight.has_value()) {
+        style.fontWeight = props.fontWeight.value();
+    }
+    if (props.fontVariant.has_value()) {
+        if (props.fontVariant.value() == FontVariant::SmallCaps) {
+            style.smallCaps = true;
+        } else {
+            style.smallCaps = false;
+        }
+    }
 }
 
 } // namespace typesetting

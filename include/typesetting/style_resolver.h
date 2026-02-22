@@ -7,13 +7,19 @@
 
 namespace typesetting {
 
+/// Result of style resolution: block styles + inline styles
+struct ResolvedStyles {
+    std::vector<BlockComputedStyle> blockStyles;
+    std::vector<std::vector<InlineComputedStyle>> inlineStyles;  // [blockIdx][inlineIdx]
+};
+
 /// Resolves CSS rules + user Style into per-block computed styles
 class StyleResolver {
 public:
     explicit StyleResolver(const CSSStylesheet& stylesheet);
 
-    /// Resolve styles for all blocks given user settings
-    std::vector<BlockComputedStyle> resolve(
+    /// Resolve styles for all blocks and their inlines
+    ResolvedStyles resolve(
         const std::vector<Block>& blocks,
         const Style& userStyle) const;
 
@@ -26,11 +32,17 @@ private:
     /// Check if a CSS selector matches a given block
     bool selectorMatches(const CSSSelector& selector, const Block& block) const;
 
+    /// Check if a CSS selector matches a given inline element within a parent block
+    bool inlineSelectorMatches(const CSSSelector& selector, const InlineElement& inl, const Block& parentBlock) const;
+
     /// Apply CSS properties onto a computed style
     void applyProperties(const CSSProperties& props, BlockComputedStyle& style, float baseFontSize) const;
 
     /// Apply user Style overrides as final layer
     void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet) const;
+
+    /// Apply CSS properties onto an inline computed style
+    void applyInlineProperties(const CSSProperties& props, InlineComputedStyle& style) const;
 };
 
 } // namespace typesetting
