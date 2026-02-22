@@ -105,6 +105,9 @@ struct BlockComputedStyle {
     bool oldstyleNums = false;
     bool hangingPunctuation = false;
 
+    // Block sizing
+    float maxWidthPercent = 100.0f;  // max-width as percentage (100 = no constraint)
+
     // HR specific
     std::optional<HRStyle> hrStyle;
 };

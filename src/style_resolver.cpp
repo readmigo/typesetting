@@ -441,6 +441,10 @@ void StyleResolver::applyProperties(
         style.hangingPunctuation = props.hangingPunctuation.value();
     }
 
+    if (props.maxWidthPercent.has_value()) {
+        style.maxWidthPercent = props.maxWidthPercent.value();
+    }
+
     // HR style: construct from border-top-width and width-percent
     if (props.borderTopWidth.has_value() || props.widthPercent.has_value()) {
         if (!style.hrStyle.has_value()) {
