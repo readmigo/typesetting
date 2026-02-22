@@ -107,6 +107,7 @@ struct BlockComputedStyle {
 
     // Block sizing
     float maxWidthPercent = 100.0f;  // max-width as percentage (100 = no constraint)
+    bool horizontalCentering = false;  // margin-left: auto + margin-right: auto
 
     // HR specific
     std::optional<HRStyle> hrStyle;

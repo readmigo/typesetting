@@ -445,6 +445,10 @@ void StyleResolver::applyProperties(
         style.maxWidthPercent = props.maxWidthPercent.value();
     }
 
+    if (props.marginLeftAuto.value_or(false) && props.marginRightAuto.value_or(false)) {
+        style.horizontalCentering = true;
+    }
+
     // HR style: construct from border-top-width and width-percent
     if (props.borderTopWidth.has_value() || props.widthPercent.has_value()) {
         if (!style.hrStyle.has_value()) {

@@ -1235,3 +1235,22 @@ TEST(StyleResolverTest, MaxWidthPercentFromCSS) {
     ASSERT_EQ(resolved.blockStyles.size(), 1);
     EXPECT_FLOAT_EQ(resolved.blockStyles[0].maxWidthPercent, 70.0f);
 }
+
+TEST(StyleResolverTest, MarginAutoCentering) {
+    auto sheet = CSSStylesheet::parse(
+        "section > p { margin: 1em auto; max-width: 70%; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    EXPECT_TRUE(resolved.blockStyles[0].horizontalCentering);
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].maxWidthPercent, 70.0f);
+}
