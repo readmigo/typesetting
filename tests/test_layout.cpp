@@ -1360,3 +1360,47 @@ TEST(LayoutTest, WidthPercentConstrainsBlock) {
     auto& line = result.pages[0].lines[0];
     EXPECT_NEAR(line.x, 110.0f, 1.0f);
 }
+
+TEST(LayoutTest, ImprintPageLayout) {
+    // End-to-end: width: 75%, margin: auto, line-height: 1.2
+    // plus: a { font-style: normal !important; } overriding p a { font-style: italic; }
+    auto sheet = CSSStylesheet::parse(
+        "p { width: 75%; margin: auto; line-height: 1.2; }\n"
+        "a { font-style: normal !important; }\n"
+        "p a { font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.inlines = {
+        InlineElement::plain("Published by "),
+        InlineElement::link("Example Press", "http://example.com"),
+    };
+    block.inlines[1].htmlTag = "a";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+    userStyle.font.family = "TestFont";
+    userStyle.font.style = FontStyle::Normal;
+    userStyle.font.weight = FontWeight::Regular;
+    userStyle.marginLeft = 20.0f;
+    userStyle.marginRight = 20.0f;
+    userStyle.marginTop = 50.0f;
+    userStyle.marginBottom = 40.0f;
+    userStyle.lineSpacingMultiplier = 1.4f;
+
+    auto resolved = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(resolved.blockStyles.size(), 1);
+    ASSERT_EQ(resolved.inlineStyles.size(), 1);
+    ASSERT_EQ(resolved.inlineStyles[0].size(), 2);
+
+    // width: 75% applied
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].widthPercent, 75.0f);
+    // margin: auto → centering
+    EXPECT_TRUE(resolved.blockStyles[0].horizontalCentering);
+    // line-height: 1.2 overrides user's 1.4
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].lineSpacingMultiplier, 1.2f);
+    // !important font-style: normal wins over p a { font-style: italic }
+    EXPECT_EQ(resolved.inlineStyles[0][1].fontStyle.value_or(FontStyle::Italic), FontStyle::Normal);
+}
