@@ -536,3 +536,25 @@ TEST(CSSTest, ParseMarginRightAuto) {
     EXPECT_TRUE(props.marginRightAuto.value_or(false));
     EXPECT_FALSE(props.marginRight.has_value());
 }
+
+TEST(CSSTest, ParseImportantFlag) {
+    auto sheet = CSSStylesheet::parse(
+        "a { font-style: normal !important; font-size: smaller; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.fontStyle.has_value());
+    EXPECT_EQ(props.fontStyle.value(), FontStyle::Normal);
+    EXPECT_NE(props.importantFlags & typesetting::kImpFontStyle, 0u);
+    EXPECT_EQ(props.importantFlags & typesetting::kImpFontSize, 0u);
+    EXPECT_TRUE(props.fontSize.has_value());
+}
+
+TEST(CSSTest, ParseImportantHangingPunctuation) {
+    auto sheet = CSSStylesheet::parse(
+        "p { hanging-punctuation: none !important; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.hangingPunctuation.has_value());
+    EXPECT_FALSE(props.hangingPunctuation.value());
+    EXPECT_NE(props.importantFlags & typesetting::kImpHangingPunct, 0u);
+}

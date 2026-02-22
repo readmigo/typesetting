@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <sstream>
+#include <unordered_map>
 
 namespace typesetting {
 
@@ -298,6 +299,19 @@ CSSProperties parseProperties(const std::string& block) {
         std::transform(property.begin(), property.end(), property.begin(),
                        [](unsigned char c) { return std::tolower(c); });
 
+        // Detect and strip !important suffix
+        bool isImportant = false;
+        {
+            const std::string impSuffix = "!important";
+            if (value.size() >= impSuffix.size()) {
+                auto pos = value.rfind(impSuffix);
+                if (pos != std::string::npos && pos + impSuffix.size() == value.size()) {
+                    value = trim(value.substr(0, pos));
+                    isImportant = true;
+                }
+            }
+        }
+
         if (property == "text-indent") {
             float num;
             std::string unit;
@@ -519,6 +533,35 @@ CSSProperties parseProperties(const std::string& block) {
                 props.maxWidthPercent = num;
             }
         }
+
+        // Set important flag if detected
+        if (isImportant) {
+            static const std::unordered_map<std::string, uint32_t> propFlagMap = {
+                {"text-indent", kImpTextIndent},
+                {"margin-top", kImpMarginTop}, {"margin-bottom", kImpMarginBottom},
+                {"margin-left", kImpMarginLeft}, {"margin-right", kImpMarginRight},
+                {"text-align", kImpTextAlign},
+                {"font-style", kImpFontStyle}, {"font-weight", kImpFontWeight},
+                {"font-variant", kImpFontVariant}, {"font-size", kImpFontSize},
+                {"hyphens", kImpHyphens}, {"display", kImpDisplay},
+                {"padding-left", kImpPaddingLeft},
+                {"hanging-punctuation", kImpHangingPunct},
+                {"text-transform", kImpTextTransform},
+                {"vertical-align", kImpVerticalAlign},
+                {"white-space", kImpWhiteSpace},
+                {"font-variant-numeric", kImpFontVariantNum},
+                {"border-top-width", kImpBorderTopWidth}, {"border-top", kImpBorderTopWidth},
+                {"width", kImpWidthPercent}, {"max-width", kImpMaxWidthPercent},
+                {"line-height", kImpLineHeight},
+            };
+            auto it = propFlagMap.find(property);
+            if (it != propFlagMap.end()) {
+                props.importantFlags |= it->second;
+            }
+            if (property == "margin") {
+                props.importantFlags |= kImpMarginTop | kImpMarginBottom | kImpMarginLeft | kImpMarginRight;
+            }
+        }
     }
 
     return props;
@@ -614,6 +657,7 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.maxWidthPercent.has_value()) maxWidthPercent = other.maxWidthPercent;
     if (other.marginLeftAuto.has_value()) marginLeftAuto = other.marginLeftAuto;
     if (other.marginRightAuto.has_value()) marginRightAuto = other.marginRightAuto;
+    importantFlags |= other.importantFlags;
 }
 
 // --- CSSStylesheet ---

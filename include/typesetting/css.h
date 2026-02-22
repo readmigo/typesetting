@@ -10,6 +10,34 @@
 
 namespace typesetting {
 
+/// Bit flags indicating which CSS properties were declared with !important
+enum : uint32_t {
+    kImpTextIndent      = 1u << 0,
+    kImpMarginTop       = 1u << 1,
+    kImpMarginBottom    = 1u << 2,
+    kImpMarginLeft      = 1u << 3,
+    kImpMarginRight     = 1u << 4,
+    kImpTextAlign       = 1u << 5,
+    kImpFontStyle       = 1u << 6,
+    kImpFontWeight      = 1u << 7,
+    kImpFontVariant     = 1u << 8,
+    kImpFontSize        = 1u << 9,
+    kImpHyphens         = 1u << 10,
+    kImpDisplay         = 1u << 11,
+    kImpPaddingLeft     = 1u << 12,
+    kImpHangingPunct    = 1u << 13,
+    kImpTextTransform   = 1u << 14,
+    kImpVerticalAlign   = 1u << 15,
+    kImpWhiteSpace      = 1u << 16,
+    kImpFontVariantNum  = 1u << 17,
+    kImpBorderTopWidth  = 1u << 18,
+    kImpWidthPercent    = 1u << 19,
+    kImpMaxWidthPercent = 1u << 20,
+    kImpMarginLeftAuto  = 1u << 21,
+    kImpMarginRightAuto = 1u << 22,
+    kImpLineHeight      = 1u << 23,
+};
+
 enum class SelectorType {
     Element,           // p, h2, blockquote
     Class,             // .classname
@@ -67,6 +95,8 @@ struct CSSProperties {
     std::optional<float> maxWidthPercent;   // percentage (0-100)
     std::optional<bool> marginLeftAuto;    // true if margin-left is "auto"
     std::optional<bool> marginRightAuto;   // true if margin-right is "auto"
+
+    uint32_t importantFlags = 0;  // Bitfield of kImp* flags
 
     /// Merge another set of properties into this one (other overrides)
     void merge(const CSSProperties& other);
