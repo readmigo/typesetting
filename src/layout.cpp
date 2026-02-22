@@ -868,6 +868,51 @@ private:
                 }
                 break;  // Only check the first real text run
             }
+
+            // Right-side hanging: for non-last lines, check if the last run ends
+            // with a closing punctuation character and extend it past the right margin
+            for (size_t li = 0; li < lines.size(); ++li) {
+                auto& line = lines[li];
+                if (line.isLastLineOfParagraph) continue;  // Don't hang on ragged last lines
+                if (line.runs.empty()) continue;
+
+                auto& lastRun = line.runs.back();
+                if (lastRun.text.empty() || lastRun.inlineIndex < 0) continue;
+
+                // Detect trailing punctuation (ASCII + Unicode closing quotes)
+                std::string lastChar;
+                size_t textLen = lastRun.text.size();
+                unsigned char lastByte = static_cast<unsigned char>(lastRun.text[textLen - 1]);
+                if (lastByte < 0x80) {
+                    // ASCII: period, comma, colon, semicolon, quotes, hyphen
+                    char ch = lastRun.text[textLen - 1];
+                    if (ch == '.' || ch == ',' || ch == ':' || ch == ';' ||
+                        ch == '"' || ch == '\'' || ch == '-') {
+                        lastChar = std::string(1, ch);
+                    }
+                } else if (textLen >= 3) {
+                    // UTF-8 3-byte: Unicode closing quotes
+                    std::string tail3 = lastRun.text.substr(textLen - 3, 3);
+                    if (tail3 == "\xe2\x80\x9d" ||  // right double quote "
+                        tail3 == "\xe2\x80\x99" ||  // right single quote '
+                        tail3 == "\xe2\x80\x9c" ||  // left double quote " (rare at end)
+                        tail3 == "\xe2\x80\x98") {   // left single quote '
+                        lastChar = tail3;
+                    }
+                } else if (textLen >= 2) {
+                    // UTF-8 2-byte: right guillemet
+                    std::string tail2 = lastRun.text.substr(textLen - 2, 2);
+                    if (tail2 == "\xc2\xbb") {  // right guillemet »
+                        lastChar = tail2;
+                    }
+                }
+
+                if (!lastChar.empty()) {
+                    auto charMeasure = platform_->measureText(lastChar, lastRun.font);
+                    // Extend line width to allow the punctuation to hang past the margin
+                    line.width += charMeasure.width;
+                }
+            }
         }
 
         return lines;

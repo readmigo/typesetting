@@ -582,3 +582,42 @@ TEST(CSSTest, ParseLineHeightZero) {
     EXPECT_TRUE(props.lineHeight.has_value());
     EXPECT_FLOAT_EQ(props.lineHeight.value(), 0.0f);
 }
+
+// --- @supports expansion ---
+
+TEST(CSSTest, SupportsExpansionFontSize) {
+    // @supports(font-size: 0) should be treated as true, inner rules extracted
+    auto sheet = CSSStylesheet::parse(
+        "p { color: red; } "
+        "@supports(font-size: 0) { span { display: block; } } "
+        "div { color: blue; }");
+    // Should have 3 rules: p, span (from @supports), div
+    ASSERT_GE(sheet.rules.size(), 3);
+    EXPECT_EQ(sheet.rules[1].selector.element, "span");
+    EXPECT_TRUE(sheet.rules[1].properties.display.has_value());
+    EXPECT_EQ(sheet.rules[1].properties.display.value(), "block");
+}
+
+TEST(CSSTest, SupportsExpansionDisplayFlex) {
+    // @supports(display: flex) should also be expanded
+    auto sheet = CSSStylesheet::parse(
+        "@supports(display: flex) { "
+        "  section { max-width: 70%; } "
+        "  section > p { margin-left: auto; } "
+        "}");
+    ASSERT_GE(sheet.rules.size(), 2);
+    EXPECT_TRUE(sheet.rules[0].properties.maxWidthPercent.has_value());
+    EXPECT_FLOAT_EQ(sheet.rules[0].properties.maxWidthPercent.value(), 70.0f);
+}
+
+TEST(CSSTest, MediaRuleStillSkipped) {
+    // @media rules should still be skipped
+    auto sheet = CSSStylesheet::parse(
+        "p { font-size: 1em; } "
+        "@media (prefers-color-scheme: dark) { p { color: white; } } "
+        "div { font-size: 2em; }");
+    // Should have 2 rules: p, div (media block skipped)
+    ASSERT_EQ(sheet.rules.size(), 2);
+    EXPECT_EQ(sheet.rules[0].selector.element, "p");
+    EXPECT_EQ(sheet.rules[1].selector.element, "div");
+}

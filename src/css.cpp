@@ -700,25 +700,37 @@ CSSStylesheet CSSStylesheet::parse(const std::string& css) {
         }
         if (pos >= cleaned.size()) break;
 
-        // Skip @-rules (e.g., @media, @supports, @font-face, @namespace)
+        // Handle @-rules
         if (cleaned[pos] == '@') {
-            // Find the matching closing brace or semicolon
             auto semiPos = cleaned.find(';', pos);
             auto bracePos = cleaned.find('{', pos);
 
             if (bracePos != std::string::npos &&
                 (semiPos == std::string::npos || bracePos < semiPos)) {
-                // @-rule with block: skip to matching closing brace
+                // @-rule with block — find matching closing brace
+                size_t innerStart = bracePos + 1;
                 int depth = 1;
-                size_t p = bracePos + 1;
+                size_t p = innerStart;
                 while (p < cleaned.size() && depth > 0) {
                     if (cleaned[p] == '{') ++depth;
                     else if (cleaned[p] == '}') --depth;
                     ++p;
                 }
-                pos = p;
+                size_t innerEnd = (p > 0) ? p - 1 : p;  // position of matching '}'
+
+                // Check if this is @supports — expand its inner rules
+                std::string atRule = cleaned.substr(pos, bracePos - pos);
+                if (atRule.find("@supports") != std::string::npos) {
+                    // Treat @supports as true: splice inner rules into the stream
+                    std::string inner = cleaned.substr(innerStart, innerEnd - innerStart);
+                    cleaned = cleaned.substr(0, pos) + inner + cleaned.substr(p);
+                    // Don't advance pos — re-parse from the spliced position
+                } else {
+                    // Other block @-rules (@media, @font-face): skip entirely
+                    pos = p;
+                }
             } else if (semiPos != std::string::npos) {
-                // @-rule ending with semicolon (e.g., @namespace)
+                // @-rule ending with semicolon (e.g., @namespace, @charset)
                 pos = semiPos + 1;
             } else {
                 break;
