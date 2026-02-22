@@ -6,6 +6,7 @@
 #include "typesetting/layout.h"
 #include "typesetting/page.h"
 #include "typesetting/platform.h"
+#include "typesetting/interaction.h"
 #include <memory>
 
 namespace typesetting {
@@ -44,6 +45,24 @@ public:
     /// Get the platform adapter
     std::shared_ptr<PlatformAdapter> platform() const;
 
+    /// Set the chapter title for page info queries
+    void setChapterTitle(const std::string& title);
+
+    /// Layout a cover page (full-bleed image)
+    LayoutResult layoutCover(const std::string& imageSrc, const PageSize& pageSize);
+
+    // -- Interaction queries (delegate to InteractionManager) ----------------
+
+    HitTestResult hitTest(int pageIndex, float x, float y) const;
+    WordRange wordAtPoint(int pageIndex, float x, float y) const;
+    std::vector<SentenceRange> getSentences(int pageIndex) const;
+    std::vector<SentenceRange> getAllSentences() const;
+    std::vector<TextRect> getRectsForRange(int pageIndex, int blockIndex,
+                                            int charOffset, int charLength) const;
+    TextRect getBlockRect(int pageIndex, int blockIndex) const;
+    ImageHitResult hitTestImage(int pageIndex, float x, float y) const;
+    PageInfo getPageInfo(int pageIndex) const;
+
 private:
     std::shared_ptr<PlatformAdapter> platform_;
     std::unique_ptr<LayoutEngine> layoutEngine_;
@@ -52,6 +71,10 @@ private:
     CSSStylesheet lastStylesheet_;
     bool hasStylesheet_ = false;
     std::vector<BlockComputedStyle> lastStyles_;
+    std::string lastChapterTitle_;
+    InteractionManager interactionMgr_;
+
+    void updateInteractionCache(const LayoutResult& result);
 };
 
 } // namespace typesetting

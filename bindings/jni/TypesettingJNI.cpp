@@ -501,4 +501,235 @@ Java_com_readmigo_typesetting_TypesettingEngine_nativeRelayout(
     return convertLayoutResult(env, result);
 }
 
+// MARK: - Chapter title & cover
+
+JNIEXPORT void JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeSetChapterTitle(
+    JNIEnv *env, jobject thiz, jlong ptr, jstring title) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return;
+    handle->engine->setChapterTitle(jstringToStd(env, title));
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeLayoutCover(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jstring imageSrc, jfloat pageWidth, jfloat pageHeight) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+    typesetting::PageSize pageSize{pageWidth, pageHeight};
+    auto result = handle->engine->layoutCover(jstringToStd(env, imageSrc), pageSize);
+    return convertLayoutResult(env, result);
+}
+
+// MARK: - Interaction queries
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeHitTest(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jint pageIndex, jfloat x, jfloat y) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto hit = handle->engine->hitTest(pageIndex, x, y);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSHitTestResult");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jobject jResult = env->NewObject(cls, init);
+
+    env->SetIntField(jResult, env->GetFieldID(cls, "blockIndex", "I"), hit.blockIndex);
+    env->SetIntField(jResult, env->GetFieldID(cls, "lineIndex", "I"), hit.lineIndex);
+    env->SetIntField(jResult, env->GetFieldID(cls, "runIndex", "I"), hit.runIndex);
+    env->SetIntField(jResult, env->GetFieldID(cls, "charOffset", "I"), hit.charOffset);
+    env->SetBooleanField(jResult, env->GetFieldID(cls, "found", "Z"), hit.found);
+
+    env->DeleteLocalRef(cls);
+    return jResult;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeWordAtPoint(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jint pageIndex, jfloat x, jfloat y) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto word = handle->engine->wordAtPoint(pageIndex, x, y);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSWordRange");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jobject jResult = env->NewObject(cls, init);
+
+    env->SetIntField(jResult, env->GetFieldID(cls, "blockIndex", "I"), word.blockIndex);
+    env->SetIntField(jResult, env->GetFieldID(cls, "charOffset", "I"), word.charOffset);
+    env->SetIntField(jResult, env->GetFieldID(cls, "charLength", "I"), word.charLength);
+    jstring jText = safeNewStringUTF(env, word.text.c_str());
+    env->SetObjectField(jResult, env->GetFieldID(cls, "text", "Ljava/lang/String;"), jText);
+    env->DeleteLocalRef(jText);
+
+    env->DeleteLocalRef(cls);
+    return jResult;
+}
+
+static jobject convertSentenceList(JNIEnv *env,
+                                    const std::vector<typesetting::SentenceRange>& sentences) {
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSSentenceRange");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jfieldID blockIndexField = env->GetFieldID(cls, "blockIndex", "I");
+    jfieldID charOffsetField = env->GetFieldID(cls, "charOffset", "I");
+    jfieldID charLengthField = env->GetFieldID(cls, "charLength", "I");
+    jfieldID textField = env->GetFieldID(cls, "text", "Ljava/lang/String;");
+
+    jclass arrayListClass = env->FindClass("java/util/ArrayList");
+    jmethodID alInit = env->GetMethodID(arrayListClass, "<init>", "(I)V");
+    jmethodID alAdd = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+
+    jobject list = env->NewObject(arrayListClass, alInit, (jint)sentences.size());
+    for (const auto& s : sentences) {
+        jobject jSent = env->NewObject(cls, init);
+        env->SetIntField(jSent, blockIndexField, s.blockIndex);
+        env->SetIntField(jSent, charOffsetField, s.charOffset);
+        env->SetIntField(jSent, charLengthField, s.charLength);
+        jstring jText = safeNewStringUTF(env, s.text.c_str());
+        env->SetObjectField(jSent, textField, jText);
+        env->DeleteLocalRef(jText);
+        env->CallBooleanMethod(list, alAdd, jSent);
+        env->DeleteLocalRef(jSent);
+    }
+
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(arrayListClass);
+    return list;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeGetSentences(
+    JNIEnv *env, jobject thiz, jlong ptr, jint pageIndex) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+    auto sentences = handle->engine->getSentences(pageIndex);
+    return convertSentenceList(env, sentences);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeGetAllSentences(
+    JNIEnv *env, jobject thiz, jlong ptr) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+    auto sentences = handle->engine->getAllSentences();
+    return convertSentenceList(env, sentences);
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeGetRectsForRange(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jint pageIndex, jint blockIndex, jint charOffset, jint charLength) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto rects = handle->engine->getRectsForRange(pageIndex, blockIndex, charOffset, charLength);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSTextRect");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jfieldID xField = env->GetFieldID(cls, "x", "F");
+    jfieldID yField = env->GetFieldID(cls, "y", "F");
+    jfieldID wField = env->GetFieldID(cls, "width", "F");
+    jfieldID hField = env->GetFieldID(cls, "height", "F");
+
+    jclass arrayListClass = env->FindClass("java/util/ArrayList");
+    jmethodID alInit = env->GetMethodID(arrayListClass, "<init>", "(I)V");
+    jmethodID alAdd = env->GetMethodID(arrayListClass, "add", "(Ljava/lang/Object;)Z");
+
+    jobject list = env->NewObject(arrayListClass, alInit, (jint)rects.size());
+    for (const auto& rect : rects) {
+        jobject jRect = env->NewObject(cls, init);
+        env->SetFloatField(jRect, xField, rect.x);
+        env->SetFloatField(jRect, yField, rect.y);
+        env->SetFloatField(jRect, wField, rect.width);
+        env->SetFloatField(jRect, hField, rect.height);
+        env->CallBooleanMethod(list, alAdd, jRect);
+        env->DeleteLocalRef(jRect);
+    }
+
+    env->DeleteLocalRef(cls);
+    env->DeleteLocalRef(arrayListClass);
+    return list;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeGetBlockRect(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jint pageIndex, jint blockIndex) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto rect = handle->engine->getBlockRect(pageIndex, blockIndex);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSTextRect");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jobject jResult = env->NewObject(cls, init);
+
+    env->SetFloatField(jResult, env->GetFieldID(cls, "x", "F"), rect.x);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "y", "F"), rect.y);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "width", "F"), rect.width);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "height", "F"), rect.height);
+
+    env->DeleteLocalRef(cls);
+    return jResult;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeHitTestImage(
+    JNIEnv *env, jobject thiz, jlong ptr,
+    jint pageIndex, jfloat x, jfloat y) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto hit = handle->engine->hitTestImage(pageIndex, x, y);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSImageHitResult");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jobject jResult = env->NewObject(cls, init);
+
+    jstring jSrc = safeNewStringUTF(env, hit.imageSrc.c_str());
+    jstring jAlt = safeNewStringUTF(env, hit.imageAlt.c_str());
+    env->SetObjectField(jResult, env->GetFieldID(cls, "imageSrc", "Ljava/lang/String;"), jSrc);
+    env->SetObjectField(jResult, env->GetFieldID(cls, "imageAlt", "Ljava/lang/String;"), jAlt);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "x", "F"), hit.x);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "y", "F"), hit.y);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "width", "F"), hit.width);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "height", "F"), hit.height);
+    env->SetBooleanField(jResult, env->GetFieldID(cls, "found", "Z"), hit.found);
+
+    env->DeleteLocalRef(jSrc);
+    env->DeleteLocalRef(jAlt);
+    env->DeleteLocalRef(cls);
+    return jResult;
+}
+
+JNIEXPORT jobject JNICALL
+Java_com_readmigo_typesetting_TypesettingEngine_nativeGetPageInfo(
+    JNIEnv *env, jobject thiz, jlong ptr, jint pageIndex) {
+    auto handle = reinterpret_cast<EngineHandle*>(ptr);
+    if (!handle || !handle->engine) return nullptr;
+
+    auto info = handle->engine->getPageInfo(pageIndex);
+
+    jclass cls = env->FindClass("com/readmigo/typesetting/TSPageInfo");
+    jmethodID init = env->GetMethodID(cls, "<init>", "()V");
+    jobject jResult = env->NewObject(cls, init);
+
+    jstring jTitle = safeNewStringUTF(env, info.chapterTitle.c_str());
+    env->SetObjectField(jResult, env->GetFieldID(cls, "chapterTitle", "Ljava/lang/String;"), jTitle);
+    env->SetIntField(jResult, env->GetFieldID(cls, "currentPage", "I"), info.currentPage);
+    env->SetIntField(jResult, env->GetFieldID(cls, "totalPages", "I"), info.totalPages);
+    env->SetFloatField(jResult, env->GetFieldID(cls, "progress", "F"), info.progress);
+    env->SetIntField(jResult, env->GetFieldID(cls, "firstBlockIndex", "I"), info.firstBlockIndex);
+    env->SetIntField(jResult, env->GetFieldID(cls, "lastBlockIndex", "I"), info.lastBlockIndex);
+
+    env->DeleteLocalRef(jTitle);
+    env->DeleteLocalRef(cls);
+    return jResult;
+}
+
 } // extern "C"

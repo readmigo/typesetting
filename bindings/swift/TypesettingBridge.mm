@@ -143,6 +143,24 @@ private:
 @implementation TSLayoutResult
 @end
 
+@implementation TSHitTestResult
+@end
+
+@implementation TSWordRange
+@end
+
+@implementation TSSentenceRange
+@end
+
+@implementation TSTextRect
+@end
+
+@implementation TSImageHitResult
+@end
+
+@implementation TSPageInfo
+@end
+
 @implementation TSStyle
 - (instancetype)init {
     self = [super init];
@@ -337,6 +355,130 @@ private:
 
     auto result = _engine->relayout(cppStyle, pageSize);
     return [self convertResult:result];
+}
+
+// MARK: - Chapter title & cover
+
+- (void)setChapterTitle:(NSString *)title {
+    _engine->setChapterTitle(std::string([title UTF8String]));
+}
+
+- (TSLayoutResult *)layoutCover:(NSString *)imageSrc
+                      pageWidth:(CGFloat)pageWidth
+                     pageHeight:(CGFloat)pageHeight {
+    typesetting::PageSize pageSize{static_cast<float>(pageWidth), static_cast<float>(pageHeight)};
+    auto result = _engine->layoutCover(std::string([imageSrc UTF8String]), pageSize);
+    return [self convertResult:result];
+}
+
+// MARK: - Interaction queries
+
+- (TSHitTestResult *)hitTest:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y {
+    auto hit = _engine->hitTest(static_cast<int>(pageIndex),
+                                 static_cast<float>(x), static_cast<float>(y));
+    TSHitTestResult *r = [[TSHitTestResult alloc] init];
+    r.blockIndex = hit.blockIndex;
+    r.lineIndex = hit.lineIndex;
+    r.runIndex = hit.runIndex;
+    r.charOffset = hit.charOffset;
+    r.found = hit.found;
+    return r;
+}
+
+- (TSWordRange *)wordAtPoint:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y {
+    auto word = _engine->wordAtPoint(static_cast<int>(pageIndex),
+                                      static_cast<float>(x), static_cast<float>(y));
+    TSWordRange *r = [[TSWordRange alloc] init];
+    r.blockIndex = word.blockIndex;
+    r.charOffset = word.charOffset;
+    r.charLength = word.charLength;
+    r.text = [NSString stringWithUTF8String:word.text.c_str()];
+    return r;
+}
+
+- (NSArray<TSSentenceRange *> *)getSentences:(NSInteger)pageIndex {
+    auto sentences = _engine->getSentences(static_cast<int>(pageIndex));
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:sentences.size()];
+    for (const auto& s : sentences) {
+        TSSentenceRange *sr = [[TSSentenceRange alloc] init];
+        sr.blockIndex = s.blockIndex;
+        sr.charOffset = s.charOffset;
+        sr.charLength = s.charLength;
+        sr.text = [NSString stringWithUTF8String:s.text.c_str()];
+        [result addObject:sr];
+    }
+    return result;
+}
+
+- (NSArray<TSSentenceRange *> *)getAllSentences {
+    auto sentences = _engine->getAllSentences();
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:sentences.size()];
+    for (const auto& s : sentences) {
+        TSSentenceRange *sr = [[TSSentenceRange alloc] init];
+        sr.blockIndex = s.blockIndex;
+        sr.charOffset = s.charOffset;
+        sr.charLength = s.charLength;
+        sr.text = [NSString stringWithUTF8String:s.text.c_str()];
+        [result addObject:sr];
+    }
+    return result;
+}
+
+- (NSArray<TSTextRect *> *)getRectsForRange:(NSInteger)pageIndex
+                                 blockIndex:(NSInteger)blockIndex
+                                 charOffset:(NSInteger)charOffset
+                                 charLength:(NSInteger)charLength {
+    auto rects = _engine->getRectsForRange(static_cast<int>(pageIndex),
+                                            static_cast<int>(blockIndex),
+                                            static_cast<int>(charOffset),
+                                            static_cast<int>(charLength));
+    NSMutableArray *result = [NSMutableArray arrayWithCapacity:rects.size()];
+    for (const auto& rect : rects) {
+        TSTextRect *tr = [[TSTextRect alloc] init];
+        tr.x = rect.x;
+        tr.y = rect.y;
+        tr.width = rect.width;
+        tr.height = rect.height;
+        [result addObject:tr];
+    }
+    return result;
+}
+
+- (TSTextRect *)getBlockRect:(NSInteger)pageIndex blockIndex:(NSInteger)blockIndex {
+    auto rect = _engine->getBlockRect(static_cast<int>(pageIndex),
+                                       static_cast<int>(blockIndex));
+    TSTextRect *r = [[TSTextRect alloc] init];
+    r.x = rect.x;
+    r.y = rect.y;
+    r.width = rect.width;
+    r.height = rect.height;
+    return r;
+}
+
+- (TSImageHitResult *)hitTestImage:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y {
+    auto hit = _engine->hitTestImage(static_cast<int>(pageIndex),
+                                      static_cast<float>(x), static_cast<float>(y));
+    TSImageHitResult *r = [[TSImageHitResult alloc] init];
+    r.imageSrc = hit.imageSrc.empty() ? nil : [NSString stringWithUTF8String:hit.imageSrc.c_str()];
+    r.imageAlt = hit.imageAlt.empty() ? nil : [NSString stringWithUTF8String:hit.imageAlt.c_str()];
+    r.x = hit.x;
+    r.y = hit.y;
+    r.width = hit.width;
+    r.height = hit.height;
+    r.found = hit.found;
+    return r;
+}
+
+- (TSPageInfo *)getPageInfo:(NSInteger)pageIndex {
+    auto info = _engine->getPageInfo(static_cast<int>(pageIndex));
+    TSPageInfo *r = [[TSPageInfo alloc] init];
+    r.chapterTitle = [NSString stringWithUTF8String:info.chapterTitle.c_str()];
+    r.currentPage = info.currentPage;
+    r.totalPages = info.totalPages;
+    r.progress = info.progress;
+    r.firstBlockIndex = info.firstBlockIndex;
+    r.lastBlockIndex = info.lastBlockIndex;
+    return r;
 }
 
 @end

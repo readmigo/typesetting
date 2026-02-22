@@ -82,6 +82,60 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, assign) CGFloat marginRight;
 @end
 
+/// Hit test result
+@interface TSHitTestResult : NSObject
+@property (nonatomic, assign) NSInteger blockIndex;
+@property (nonatomic, assign) NSInteger lineIndex;
+@property (nonatomic, assign) NSInteger runIndex;
+@property (nonatomic, assign) NSInteger charOffset;
+@property (nonatomic, assign) BOOL found;
+@end
+
+/// Word range
+@interface TSWordRange : NSObject
+@property (nonatomic, assign) NSInteger blockIndex;
+@property (nonatomic, assign) NSInteger charOffset;
+@property (nonatomic, assign) NSInteger charLength;
+@property (nonatomic, copy) NSString *text;
+@end
+
+/// Sentence range
+@interface TSSentenceRange : NSObject
+@property (nonatomic, assign) NSInteger blockIndex;
+@property (nonatomic, assign) NSInteger charOffset;
+@property (nonatomic, assign) NSInteger charLength;
+@property (nonatomic, copy) NSString *text;
+@end
+
+/// Text rectangle in page coordinates
+@interface TSTextRect : NSObject
+@property (nonatomic, assign) CGFloat x;
+@property (nonatomic, assign) CGFloat y;
+@property (nonatomic, assign) CGFloat width;
+@property (nonatomic, assign) CGFloat height;
+@end
+
+/// Image hit test result
+@interface TSImageHitResult : NSObject
+@property (nonatomic, copy, nullable) NSString *imageSrc;
+@property (nonatomic, copy, nullable) NSString *imageAlt;
+@property (nonatomic, assign) CGFloat x;
+@property (nonatomic, assign) CGFloat y;
+@property (nonatomic, assign) CGFloat width;
+@property (nonatomic, assign) CGFloat height;
+@property (nonatomic, assign) BOOL found;
+@end
+
+/// Page metadata for header/footer rendering
+@interface TSPageInfo : NSObject
+@property (nonatomic, copy) NSString *chapterTitle;
+@property (nonatomic, assign) NSInteger currentPage;
+@property (nonatomic, assign) NSInteger totalPages;
+@property (nonatomic, assign) CGFloat progress;
+@property (nonatomic, assign) NSInteger firstBlockIndex;
+@property (nonatomic, assign) NSInteger lastBlockIndex;
+@end
+
 /// Protocol for providing image dimensions to the typesetting engine
 @protocol TSImageSizeProvider <NSObject>
 /// Return the natural size of an image, or nil if unknown.
@@ -115,6 +169,43 @@ NS_ASSUME_NONNULL_BEGIN
 - (TSLayoutResult *)relayoutWithStyle:(TSStyle *)style
                             pageWidth:(CGFloat)pageWidth
                            pageHeight:(CGFloat)pageHeight;
+
+/// Set chapter title for page info queries
+- (void)setChapterTitle:(NSString *)title;
+
+/// Layout a cover page (full-bleed image)
+- (TSLayoutResult *)layoutCover:(NSString *)imageSrc
+                      pageWidth:(CGFloat)pageWidth
+                     pageHeight:(CGFloat)pageHeight;
+
+// -- Interaction queries --
+
+/// Hit test: coordinate → character-level mapping
+- (TSHitTestResult *)hitTest:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y;
+
+/// Get the word at a given point
+- (TSWordRange *)wordAtPoint:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y;
+
+/// Get all sentences on a page
+- (NSArray<TSSentenceRange *> *)getSentences:(NSInteger)pageIndex;
+
+/// Get all sentences across all pages
+- (NSArray<TSSentenceRange *> *)getAllSentences;
+
+/// Character range → visual rectangles
+- (NSArray<TSTextRect *> *)getRectsForRange:(NSInteger)pageIndex
+                                 blockIndex:(NSInteger)blockIndex
+                                 charOffset:(NSInteger)charOffset
+                                 charLength:(NSInteger)charLength;
+
+/// Bounding rect of an entire block on a page
+- (TSTextRect *)getBlockRect:(NSInteger)pageIndex blockIndex:(NSInteger)blockIndex;
+
+/// Image hit test
+- (TSImageHitResult *)hitTestImage:(NSInteger)pageIndex x:(CGFloat)x y:(CGFloat)y;
+
+/// Page metadata (chapter title, progress, etc.)
+- (TSPageInfo *)getPageInfo:(NSInteger)pageIndex;
 
 @end
 
