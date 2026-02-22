@@ -132,6 +132,153 @@ ResolvedStyles StyleResolver::resolve(
         result.inlineStyles.push_back(std::move(inlineStyles));
     }
 
+    // Phase 5: Expand display:block inline spans into separate blocks
+    bool needsExpansion = false;
+    for (size_t bi = 0; bi < blocks.size() && !needsExpansion; ++bi) {
+        for (size_t ii = 0; ii < result.inlineStyles[bi].size(); ++ii) {
+            if (result.inlineStyles[bi][ii].displayBlock) {
+                needsExpansion = true;
+                break;
+            }
+        }
+    }
+
+    if (needsExpansion) {
+        std::vector<Block> expandedBlocks;
+        std::vector<BlockComputedStyle> expandedStyles;
+        std::vector<std::vector<InlineComputedStyle>> expandedInlineStyles;
+
+        for (size_t bi = 0; bi < blocks.size(); ++bi) {
+            const auto& block = blocks[bi];
+            const auto& blockStyle = result.blockStyles[bi];
+            const auto& inlStyles = result.inlineStyles[bi];
+
+            // Check if this block has any display:block inlines
+            bool hasDisplayBlock = false;
+            for (size_t ii = 0; ii < inlStyles.size(); ++ii) {
+                if (inlStyles[ii].displayBlock) {
+                    hasDisplayBlock = true;
+                    break;
+                }
+            }
+
+            if (!hasDisplayBlock) {
+                expandedBlocks.push_back(block);
+                expandedStyles.push_back(blockStyle);
+                expandedInlineStyles.push_back(inlStyles);
+                continue;
+            }
+
+            // Split this block at display:block span boundaries
+            std::vector<InlineElement> pendingInlines;
+            std::vector<InlineComputedStyle> pendingInlStyles;
+
+            for (size_t ii = 0; ii < block.inlines.size(); ++ii) {
+                const auto& inl = block.inlines[ii];
+                bool isDisplayBlock = (ii < inlStyles.size() && inlStyles[ii].displayBlock);
+
+                if (isDisplayBlock) {
+                    // Flush any pending non-display:block inlines as a regular block
+                    if (!pendingInlines.empty()) {
+                        Block subBlock;
+                        subBlock.type = block.type;
+                        subBlock.htmlTag = block.htmlTag;
+                        subBlock.className = block.className;
+                        subBlock.epubType = block.epubType;
+                        subBlock.parentTag = block.parentTag;
+                        subBlock.parentClassName = block.parentClassName;
+                        subBlock.parentEpubType = block.parentEpubType;
+                        subBlock.parentId = block.parentId;
+                        subBlock.id = block.id;
+                        subBlock.inlines = std::move(pendingInlines);
+                        pendingInlines.clear();
+
+                        expandedBlocks.push_back(std::move(subBlock));
+                        expandedStyles.push_back(blockStyle);
+                        expandedInlineStyles.push_back(std::move(pendingInlStyles));
+                        pendingInlStyles.clear();
+                    }
+
+                    // Create a new block for this display:block span
+                    Block spanBlock;
+                    spanBlock.type = BlockType::Paragraph;
+                    spanBlock.htmlTag = inl.htmlTag.empty() ? "span" : inl.htmlTag;
+                    spanBlock.className = inl.className;
+                    spanBlock.epubType = inl.epubType;
+                    spanBlock.parentTag = block.htmlTag;
+                    spanBlock.parentClassName = block.className;
+                    spanBlock.parentEpubType = block.epubType;
+                    spanBlock.parentId = block.id;
+
+                    InlineElement newInl = inl;
+                    spanBlock.inlines.push_back(newInl);
+
+                    // Style: start from parent block style, then apply CSS overrides
+                    BlockComputedStyle spanStyle = blockStyle;
+                    spanStyle.textIndent = 0;
+                    spanStyle.paragraphSpacingAfter = 0;
+                    spanStyle.marginTop = 0;
+                    spanStyle.marginBottom = 0;
+
+                    // Re-match CSS rules targeting this inline and apply as block properties
+                    float baseFontSize = userStyle.font.size;
+                    std::vector<const CSSRule*> spanMatches;
+                    for (const auto& rule : stylesheet_.rules) {
+                        if (inlineSelectorMatches(rule.selector, inl, block)) {
+                            spanMatches.push_back(&rule);
+                        }
+                    }
+                    std::sort(spanMatches.begin(), spanMatches.end(),
+                              [](const CSSRule* a, const CSSRule* b) {
+                                  return a->selector.specificity() < b->selector.specificity();
+                              });
+                    for (const auto* rule : spanMatches) {
+                        applyProperties(rule->properties, spanStyle, baseFontSize, false);
+                    }
+                    for (const auto* rule : spanMatches) {
+                        applyProperties(rule->properties, spanStyle, baseFontSize, true);
+                    }
+
+                    expandedBlocks.push_back(std::move(spanBlock));
+                    expandedStyles.push_back(std::move(spanStyle));
+                    expandedInlineStyles.push_back({});
+
+                } else if (inl.text == "\n") {
+                    // Skip <br/> between display:block spans
+                    continue;
+                } else {
+                    pendingInlines.push_back(inl);
+                    if (ii < inlStyles.size()) {
+                        pendingInlStyles.push_back(inlStyles[ii]);
+                    }
+                }
+            }
+
+            // Flush remaining non-display:block inlines
+            if (!pendingInlines.empty()) {
+                Block subBlock;
+                subBlock.type = block.type;
+                subBlock.htmlTag = block.htmlTag;
+                subBlock.className = block.className;
+                subBlock.epubType = block.epubType;
+                subBlock.parentTag = block.parentTag;
+                subBlock.parentClassName = block.parentClassName;
+                subBlock.parentEpubType = block.parentEpubType;
+                subBlock.parentId = block.parentId;
+                subBlock.id = block.id;
+                subBlock.inlines = std::move(pendingInlines);
+
+                expandedBlocks.push_back(std::move(subBlock));
+                expandedStyles.push_back(blockStyle);
+                expandedInlineStyles.push_back(std::move(pendingInlStyles));
+            }
+        }
+
+        result.expandedBlocks = std::move(expandedBlocks);
+        result.blockStyles = std::move(expandedStyles);
+        result.inlineStyles = std::move(expandedInlineStyles);
+    }
+
     TS_LOGI("StyleResolver::resolve: blocks=%zu rules=%zu", result.blockStyles.size(), stylesheet_.rules.size());
     return result;
 }

@@ -9,6 +9,7 @@ namespace typesetting {
 
 /// Result of style resolution: block styles + inline styles
 struct ResolvedStyles {
+    std::vector<Block> expandedBlocks;  // Non-empty when display:block expansion occurred
     std::vector<BlockComputedStyle> blockStyles;
     std::vector<std::vector<InlineComputedStyle>> inlineStyles;  // [blockIdx][inlineIdx]
 };

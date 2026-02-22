@@ -1353,9 +1353,55 @@ TEST(StyleResolverTest, InlineDisplayBlockDetected) {
     userStyle.font.size = 16.0f;
     auto resolved = resolver.resolve({block}, userStyle);
 
-    ASSERT_EQ(resolved.inlineStyles.size(), 1);
-    ASSERT_EQ(resolved.inlineStyles[0].size(), 1);
-    EXPECT_TRUE(resolved.inlineStyles[0][0].displayBlock);
+    // display:block triggers expansion → expandedBlocks should be non-empty
+    ASSERT_FALSE(resolved.expandedBlocks.empty());
+    ASSERT_EQ(resolved.expandedBlocks.size(), 1);
+    EXPECT_EQ(resolved.expandedBlocks[0].inlines[0].text, "First verse line");
+}
+
+TEST(StyleResolverTest, DisplayBlockExpandsBlocks) {
+    auto sheet = CSSStylesheet::parse(
+        ".verse p > span { display: block; padding-left: 1em; text-indent: -1em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+    block.parentClassName = "verse";
+    InlineElement span1;
+    span1.type = InlineType::Text;
+    span1.htmlTag = "span";
+    span1.text = "First verse line";
+    InlineElement br;
+    br.type = InlineType::Text;
+    br.text = "\n";
+    InlineElement span2;
+    span2.type = InlineType::Text;
+    span2.htmlTag = "span";
+    span2.text = "Second verse line";
+    block.inlines = {span1, br, span2};
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    // Should have expanded from 1 block to 2 blocks (br skipped)
+    ASSERT_FALSE(resolved.expandedBlocks.empty());
+    ASSERT_EQ(resolved.expandedBlocks.size(), 2);
+    ASSERT_EQ(resolved.blockStyles.size(), 2);
+
+    // Each expanded block should have one inline
+    EXPECT_EQ(resolved.expandedBlocks[0].inlines.size(), 1);
+    EXPECT_EQ(resolved.expandedBlocks[0].inlines[0].text, "First verse line");
+    EXPECT_EQ(resolved.expandedBlocks[1].inlines.size(), 1);
+    EXPECT_EQ(resolved.expandedBlocks[1].inlines[0].text, "Second verse line");
+
+    // CSS block-level properties should be applied
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].paddingLeft, 16.0f);   // 1em
+    EXPECT_FLOAT_EQ(resolved.blockStyles[0].textIndent, -16.0f);   // -1em
+    EXPECT_FLOAT_EQ(resolved.blockStyles[1].paddingLeft, 16.0f);
+    EXPECT_FLOAT_EQ(resolved.blockStyles[1].textIndent, -16.0f);
 }
 
 TEST(StyleResolverTest, InlineDisplayBlockNotSetForNonMatch) {
