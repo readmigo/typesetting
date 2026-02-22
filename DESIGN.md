@@ -23,6 +23,30 @@
 11. [构建与测试](#11-构建与测试)
 12. [文件清单](#12-文件清单)
 13. [向后兼容性](#13-向后兼容性)
+14. [交互层 (Interaction Module)](#14-交互层-interaction-module)
+15. [交互层数据模型](#15-交互层数据模型)
+16. [交互层 API](#16-交互层-api)
+17. [交互算法](#17-交互算法)
+   - 17.1 [命中测试 (hitTest)](#171-命中测试-hittest)
+   - 17.2 [分词 (wordAtPoint)](#172-分词-wordatpoint)
+   - 17.3 [句子分割 (getSentences)](#173-句子分割-getsentences)
+   - 17.4 [范围→矩形 (getRectsForRange)](#174-范围矩形-getrectsforrange)
+   - 17.5 [段落矩形 (getBlockRect)](#175-段落矩形-getblockrect)
+   - 17.6 [图片命中测试 (hitTestImage)](#176-图片命中测试-hittestimage)
+18. [封面页](#18-封面页)
+19. [页面元信息 (PageInfo)](#19-页面元信息-pageinfo)
+20. [Engine 缓存变更](#20-engine-缓存变更)
+21. [平台绑定层变更](#21-平台绑定层变更)
+22. [文件清单（交互层）](#22-文件清单)
+23. [实施依赖与阶段](#23-实施依赖与阶段)
+24. [向后兼容性（交互层）](#24-向后兼容性交互层)
+25. [不在引擎范围的特性](#25-不在引擎范围的特性)
+26. [外部接口详细规格](#26-外部接口详细规格)
+   - 26.1 [C++ 核心接口 (Engine)](#261-c-核心接口-engine)
+   - 26.2 [iOS 绑定接口 (TypesettingBridge)](#262-ios-绑定接口-typesettingbridge)
+   - 26.3 [Android 绑定接口 (TypesettingJNI)](#263-android-绑定接口-typesettingjni)
+   - 26.4 [错误处理约定](#264-错误处理约定)
+   - 26.5 [线程安全约定](#265-线程安全约定)
 
 ---
 
@@ -1192,3 +1216,947 @@ ctest --test-dir build --output-on-failure
 | TextRun 新增字段 | `smallCaps=false`, `isLink=false`, `href=""`——现有渲染代码可忽略 |
 | Page 新增 decorations | 默认为空向量，现有渲染代码不受影响 |
 | LayoutEngine 双重载 | `layoutChapter(Style)` 和 `layoutChapter(BlockComputedStyle[])` 并存 |
+
+---
+
+## 14. 交互层 (Interaction Module)
+
+### 14.1 概述
+
+交互层是排版引擎的**查询扩展**，在排版完成后为平台层提供命中测试、文本选择、TTS 高亮等交互能力。交互层不修改排版结果，仅基于缓存的 `LayoutResult` 进行只读查询。
+
+### 14.2 功能矩阵
+
+| # | 功能 | 引擎层职责 | 平台层职责 |
+|---|------|-----------|-----------|
+| 1 | 段落双击事件 | 命中测试 + 段落矩形查询 | 手势识别 + 业务回调 |
+| 2 | TTS 句子高亮 | 句子分割 + 字符范围→视觉矩形 | TTS 播放 + 高亮层绘制 |
+| 3 | 自动翻页 | 无改动（已提供页数） | 定时器 + 翻页控制 |
+| 4 | 分词 | 词边界查找 | 无 |
+| 5 | 长按划线 | 字符命中测试 + 范围→矩形 | 手势处理 + 高亮层绘制 |
+| 6 | 仿真翻页 | 无改动 | 翻页动画渲染 |
+| 7 | 封面展示 | 封面页排版 API | 图片加载 + 渲染 |
+| 8 | 内嵌图片显示 | 无改动（已支持 Decoration 输出） | 图片加载 + 渲染 |
+| 9 | 图片点击放大 | 图片命中测试 | 点击事件 + 缩放查看器 |
+| 10 | 章节标题显示 | PageInfo 元数据输出 | margin 区域内绘制 |
+| 11 | 阅读进度显示 | PageInfo 进度计算 | margin 区域内绘制 |
+
+### 14.3 架构位置
+
+```mermaid
+graph TB
+    subgraph "输入"
+        HTML["HTML 字符串"]
+        CSS["CSS 字符串"]
+        UserStyle["Style（用户偏好）"]
+        PS["PageSize"]
+    end
+
+    subgraph "Core Engine (C++17)"
+        HTMLParser["HTML 解析器<br/>document.h/cpp"]
+        CSSParser["CSS 解析器<br/>css.h/cpp"]
+        SR["样式解析器<br/>style_resolver.h/cpp"]
+        LE["排版引擎<br/>layout.h/cpp"]
+        Facade["引擎门面<br/>engine.h/cpp"]
+        IM["交互管理器<br/>interaction.h/cpp"]
+    end
+
+    subgraph "缓存"
+        Cache["lastResult_<br/>lastBlocks_<br/>lastChapterTitle_"]
+    end
+
+    subgraph "平台绑定层"
+        Swift["TypesettingBridge<br/>Objective-C++"]
+        JNI["TypesettingJNI<br/>C++/JNI"]
+    end
+
+    subgraph "输出"
+        Result["LayoutResult<br/>Page[] → Line[] → TextRun[]"]
+        Query["查询结果<br/>HitTestResult / WordRange /<br/>SentenceRange / TextRect /<br/>ImageHitResult / PageInfo"]
+    end
+
+    HTML --> Facade
+    CSS --> Facade
+    UserStyle --> Facade
+    PS --> Facade
+
+    Facade --> HTMLParser
+    Facade --> CSSParser
+    Facade --> SR
+    Facade --> LE
+    Facade --> IM
+
+    LE --> Result
+    Result --> Cache
+    Cache --> IM
+    IM --> Query
+
+    Swift --> Facade
+    JNI --> Facade
+```
+
+### 14.4 数据流
+
+```mermaid
+sequenceDiagram
+    participant App as 平台 App
+    participant Bridge as 绑定层
+    participant Engine
+    participant IM as InteractionManager
+    participant Cache as 缓存
+
+    Note over Engine: 排版阶段（已有流程 + 缓存）
+    App->>Bridge: layoutHTML(html, css, style, pageSize)
+    Bridge->>Engine: layoutHTML(...)
+    Engine->>Engine: 解析 → 样式 → 排版
+    Engine->>Cache: 缓存 LayoutResult + Blocks + chapterTitle
+    Engine->>IM: setLayoutResult(result, blocks)
+    Engine-->>Bridge: LayoutResult
+    Bridge-->>App: TSLayoutResult
+
+    Note over App: 交互阶段（新增流程）
+    App->>Bridge: hitTest(pageIndex, x, y)
+    Bridge->>Engine: hitTest(pageIndex, x, y)
+    Engine->>IM: hitTest(pageIndex, x, y)
+    IM->>Cache: 查询缓存排版数据
+    IM-->>Engine: HitTestResult
+    Engine-->>Bridge: HitTestResult
+    Bridge-->>App: TSHitTestResult
+
+    App->>Bridge: sentencesForPage(pageIndex)
+    Bridge->>Engine: getSentences(pageIndex)
+    Engine->>IM: getSentences(pageIndex)
+    IM-->>Engine: vector~SentenceRange~
+    Engine-->>Bridge: vector~SentenceRange~
+    Bridge-->>App: NSArray~TSSentenceRange~
+```
+
+---
+
+## 15. 交互层数据模型
+
+### 15.1 数据结构
+
+```mermaid
+classDiagram
+    class TextRect {
+        +float x
+        +float y
+        +float width
+        +float height
+    }
+
+    class HitTestResult {
+        +int blockIndex
+        +int lineIndex
+        +int runIndex
+        +int charOffset
+        +bool found
+    }
+
+    class WordRange {
+        +int blockIndex
+        +int charOffset
+        +int charLength
+        +string text
+    }
+
+    class SentenceRange {
+        +int blockIndex
+        +int charOffset
+        +int charLength
+        +string text
+    }
+
+    class ImageHitResult {
+        +string imageSrc
+        +string imageAlt
+        +float x / y / width / height
+        +bool found
+    }
+
+    class PageInfo {
+        +string chapterTitle
+        +int currentPage
+        +int totalPages
+        +float progress
+        +int firstBlockIndex
+        +int lastBlockIndex
+    }
+```
+
+### 15.2 charOffset 坐标系
+
+交互层统一使用 **Block plainText 偏移** 作为字符定位坐标系。
+
+| 字段 | 坐标系 | 说明 |
+|------|--------|------|
+| `TextRun.charOffset` | InlineElement 内偏移 | 排版输出的原始偏移，相对于所属 `InlineElement.text` |
+| `HitTestResult.charOffset` | Block plainText 偏移 | 相对于 `block.plainText()` 的字节偏移 |
+| `WordRange.charOffset` | Block plainText 偏移 | 同上 |
+| `SentenceRange.charOffset` | Block plainText 偏移 | 同上 |
+| `getRectsForRange` 输入参数 | Block plainText 偏移 | 同上 |
+
+**坐标转换关系**：
+
+```mermaid
+flowchart LR
+    A["Block plainText offset"] --> B["遍历 block.inlines[]<br/>累加每个 text.length"]
+    B --> C["确定 inlineIndex +<br/>inline 内 offset"]
+    C --> D["匹配 TextRun 的<br/>inlineIndex + charOffset"]
+```
+
+转换公式：`blockOffset = sum(inlines[0..i-1].text.length) + inlineCharOffset`
+
+---
+
+## 16. 交互层 API
+
+### 16.1 Engine 新增接口
+
+| 方法 | 输入 | 输出 | 用途 | 服务的功能 |
+|------|------|------|------|-----------|
+| `layoutCover` | imageSrc, pageSize | Page | 生成封面页 | 封面展示 |
+| `hitTest` | pageIndex, x, y | HitTestResult | 坐标→字符级命中测试 | 双击、长按 |
+| `wordAtPoint` | pageIndex, x, y | WordRange | 获取点击位置的词 | 分词、长按划线 |
+| `getSentences` | pageIndex | vector\<SentenceRange\> | 获取页面内句子边界 | TTS 高亮 |
+| `getAllSentences` | 无 | vector\<SentenceRange\> | 获取全章节句子边界 | TTS 高亮 |
+| `getRectsForRange` | pageIndex, blockIndex, charOffset, charLength | vector\<TextRect\> | 字符范围→视觉矩形 | TTS 高亮、长按划线 |
+| `getBlockRect` | pageIndex, blockIndex | TextRect | 段落整体矩形 | 双击段落 |
+| `hitTestImage` | pageIndex, x, y | ImageHitResult | 图片命中测试 | 图片点击放大 |
+| `getPageInfo` | pageIndex | PageInfo | 页面元信息 | 章节标题、阅读进度 |
+
+### 16.2 InteractionManager 职责
+
+| 职责 | 说明 |
+|------|------|
+| 持有缓存 | 保存最近一次 `LayoutResult` 和 `vector<Block>` 的拷贝 |
+| 查询委托 | Engine 将所有交互查询方法委托给 InteractionManager |
+| 坐标转换 | 在 Block plainText 偏移 ↔ (inlineIndex, charOffset) 之间双向转换 |
+
+---
+
+## 17. 交互算法
+
+### 17.1 命中测试 (hitTest)
+
+```mermaid
+flowchart TD
+    A["输入: pageIndex, x, y"] --> B["获取 Page"]
+    B --> C["遍历 Page.lines"]
+    C --> D{"y 在 line 垂直范围内?<br/>[line.y - ascent, line.y - ascent + height]"}
+    D -- 否 --> C
+    D -- 是 --> E["遍历 line.runs"]
+    E --> F{"x 在 run 水平范围内?<br/>[run.x, run.x + width]"}
+    F -- 否 --> E
+    F -- 是 --> G["计算 charOffset<br/>proportion = (x - run.x) / run.width<br/>inlineCharOffset = run.charOffset + proportion × run.charLength"]
+    G --> H["转换为 Block plainText offset"]
+    H --> I["返回 HitTestResult (found=true)"]
+    E -- 行内未命中任何 run --> J["取该行最后一个 run"]
+    J --> I
+    C -- 所有行未命中 --> K["返回 HitTestResult (found=false)"]
+```
+
+### 17.2 分词 (wordAtPoint)
+
+```mermaid
+flowchart TD
+    A["输入: pageIndex, x, y"] --> B["调用 hitTest"]
+    B --> C{found?}
+    C -- 否 --> D["返回空 WordRange"]
+    C -- 是 --> E["获取 Block.plainText()"]
+    E --> F["从 charOffset 向左/右扫描"]
+    F --> G{字符类型判定}
+    G -- "ASCII 字母/数字" --> H["扩展到空格或标点为止"]
+    G -- "CJK 字符<br/>(U+4E00–U+9FFF<br/>U+3040–U+30FF)" --> I["单个字符即为一词"]
+    G -- "标点/空格" --> J["返回空 WordRange"]
+    H --> K["返回 WordRange"]
+    I --> K
+```
+
+### 17.3 句子分割 (getSentences)
+
+```mermaid
+flowchart TD
+    A["输入: pageIndex"] --> B["获取页面 blockIndex 范围<br/>firstBlockIndex ~ lastBlockIndex"]
+    B --> C["遍历每个 Block"]
+    C --> D["获取 Block.plainText()"]
+    D --> E["逐字节扫描"]
+    E --> F{当前字符}
+    F -- "英文句尾 . ! ?" --> G{"后跟空格 + 大写字母<br/>或文本结尾?"}
+    G -- 是 --> H["标记分句点"]
+    G -- 否 --> I["跳过（可能是缩写）"]
+    F -- "中文句尾 。！？" --> H
+    F -- "其他字符" --> E
+    H --> J["包含尾随引号<br/>&rdquo; &rsquo; 等"]
+    J --> K["生成 SentenceRange<br/>含 blockIndex + charOffset + charLength"]
+    K --> E
+    E -- "扫描结束" --> L["剩余文本作为最后一句"]
+    L --> M["返回 vector SentenceRange"]
+```
+
+### 17.4 范围→矩形 (getRectsForRange)
+
+```mermaid
+flowchart TD
+    A["输入: pageIndex, blockIndex,<br/>charOffset, charLength"] --> B["将 charOffset/charLength<br/>转为请求范围 [reqStart, reqEnd)"]
+    B --> C["遍历 Page.lines"]
+    C --> D["遍历 line.runs"]
+    D --> E{run.blockIndex == blockIndex?}
+    E -- 否 --> D
+    E -- 是 --> F["将 run 的 (inlineIndex, charOffset)<br/>转为 Block plainText 坐标"]
+    F --> G["计算 run 范围<br/>[runStart, runEnd)"]
+    G --> H{run 范围与请求范围重叠?}
+    H -- 否 --> D
+    H -- 是 --> I["计算重叠比例"]
+    I --> J["裁剪 x 和 width<br/>startRatio = (overlapStart - runStart) / runLength<br/>endRatio = (overlapEnd - runStart) / runLength"]
+    J --> K["生成 TextRect<br/>x = run.x + startRatio × run.width<br/>width = (endRatio - startRatio) × run.width<br/>y = line.y - line.ascent<br/>height = line.height"]
+    K --> L["添加到结果"]
+    L --> D
+    D -- 结束 --> M["返回 vector TextRect"]
+```
+
+### 17.5 段落矩形 (getBlockRect)
+
+遍历页面所有 line/run，收集 `blockIndex` 匹配的 run，计算 bounding box：
+
+| 计算 | 值 |
+|------|-----|
+| minX | 所有匹配 run 的最小 `run.x` |
+| minY | 所有匹配 line 的最小 `line.y - line.ascent` |
+| maxX | 所有匹配 run 的最大 `run.x + run.width` |
+| maxY | 所有匹配 line 的最大 `line.y - line.ascent + line.height` |
+| 结果 | `TextRect{minX, minY, maxX - minX, maxY - minY}` |
+
+### 17.6 图片命中测试 (hitTestImage)
+
+```mermaid
+flowchart TD
+    A["输入: pageIndex, x, y"] --> B["获取 Page"]
+    B --> C["遍历 Page.decorations"]
+    C --> D{type == ImagePlaceholder?}
+    D -- 否 --> C
+    D -- 是 --> E{"(x, y) 在矩形内?<br/>deco.x ≤ x ≤ deco.x + deco.width<br/>deco.y ≤ y ≤ deco.y + deco.height"}
+    E -- 否 --> C
+    E -- 是 --> F["返回 ImageHitResult<br/>found=true, imageSrc, 矩形坐标"]
+    C -- 遍历结束 --> G["返回 ImageHitResult (found=false)"]
+```
+
+---
+
+## 18. 封面页
+
+### 18.1 封面排版 (layoutCover)
+
+```mermaid
+flowchart TD
+    A["输入: imageSrc, pageSize"] --> B["调用 platform.getImageSize(src)"]
+    B --> C{获取到原始尺寸?}
+    C -- 是 --> D["等比缩放 fit 到 pageSize<br/>scale = min(pageW/imgW, pageH/imgH)"]
+    C -- 否 --> E["使用 pageSize 铺满"]
+    D --> F["计算居中偏移<br/>offsetX = (pageW - scaledW) / 2<br/>offsetY = (pageH - scaledH) / 2"]
+    E --> F
+    F --> G["创建 Page"]
+    G --> H["设置 pageIndex = -1"]
+    H --> I["添加 Decoration<br/>type = ImagePlaceholder"]
+    I --> J["返回 Page"]
+```
+
+### 18.2 封面页属性
+
+| Page 字段 | 值 | 说明 |
+|-----------|-----|------|
+| `pageIndex` | -1 | 标记为封面，不计入正文页码 |
+| `width` / `height` | pageSize | 页面尺寸 |
+| `contentX` / `contentY` | 0 | 无 margin，全页可用 |
+| `contentWidth` / `contentHeight` | pageSize | 全页可用 |
+| `firstBlockIndex` / `lastBlockIndex` | -1 | 封面无关联 Block |
+
+| Decoration 字段 | 值 |
+|-----------------|-----|
+| `type` | ImagePlaceholder |
+| `x` / `y` | 居中偏移后的坐标 |
+| `width` / `height` | 等比缩放后的尺寸 |
+| `imageSrc` | 封面图片源 |
+
+---
+
+## 19. 页面元信息 (PageInfo)
+
+### 19.1 设计决策
+
+页眉（章节标题）和页脚（阅读进度）由平台层在 margin 区域内自行渲染，引擎仅提供元数据。
+
+**理由**：
+
+| 考量 | 引擎排版页眉页脚 | 引擎输出元数据（采用） |
+|------|-----------------|---------------------|
+| 关注点分离 | 违反——排版引擎决定 UI 装饰 | 遵守——引擎只管排版 |
+| 灵活性 | 低——字体/颜色/样式硬编码 | 高——平台自由定制 |
+| 复杂度 | 高——每页额外排版行 | 低——仅数据计算 |
+| 跨平台一致性 | 强制一致 | 各平台用原生风格 |
+
+### 19.2 PageInfo 字段
+
+| 字段 | 类型 | 计算方式 |
+|------|------|---------|
+| `chapterTitle` | string | Engine 缓存的章节标题 |
+| `currentPage` | int | pageIndex + 1（1-based 显示） |
+| `totalPages` | int | LayoutResult.pages.size() |
+| `progress` | float | (pageIndex + 1) / totalPages，范围 0.0 ~ 1.0 |
+| `firstBlockIndex` | int | Page.firstBlockIndex |
+| `lastBlockIndex` | int | Page.lastBlockIndex |
+
+### 19.3 平台渲染布局
+
+```mermaid
+graph TB
+    subgraph "完整页面 (pageSize)"
+        subgraph "marginTop 区域"
+            Header["← chapterTitle（左上角）"]
+        end
+        subgraph "排版内容区 (contentArea)"
+            Content["Lines + TextRuns + Decorations"]
+        end
+        subgraph "marginBottom 区域"
+            Footer["currentPage / totalPages（右下角） →"]
+        end
+    end
+
+    style Header fill:#fff3e0,stroke:#f57c00
+    style Footer fill:#fff3e0,stroke:#f57c00
+    style Content fill:#f5f5f5,stroke:#9e9e9e
+```
+
+---
+
+## 20. Engine 缓存变更
+
+| 缓存字段 | 类型 | 来源 | 用途 |
+|---------|------|------|------|
+| `lastBlocks_` | `vector<Block>` | 已有 | HTML 解析结果 |
+| `lastChapterId_` | `string` | 已有 | 章节 ID |
+| `lastStylesheet_` | `CSSStylesheet` | 已有 | CSS 解析结果 |
+| `hasStylesheet_` | `bool` | 已有 | 是否有 CSS |
+| `lastStyles_` | `vector<BlockComputedStyle>` | 已有 | 样式计算结果 |
+| **`lastResult_`** | `LayoutResult` | **新增** | 排版结果，供交互查询 |
+| **`lastChapterTitle_`** | `string` | **新增** | 章节标题，供 PageInfo |
+| **`interactionMgr_`** | `unique_ptr<InteractionManager>` | **新增** | 交互管理器实例 |
+
+所有 `layoutHTML` / `layoutBlocks` / `relayout` 方法在返回前：
+1. 缓存 LayoutResult 到 `lastResult_`
+2. 调用 `interactionMgr_->setLayoutResult(result, lastBlocks_)` 更新交互管理器
+
+---
+
+## 21. 平台绑定层变更
+
+### 21.1 iOS TypesettingBridge 新增
+
+**新增 ObjC 数据类**：
+
+| 类 | 字段 |
+|----|------|
+| `TSHitTestResult` | blockIndex, lineIndex, runIndex, charOffset, found |
+| `TSWordRange` | blockIndex, charOffset, charLength, text |
+| `TSSentenceRange` | blockIndex, charOffset, charLength, text |
+| `TSImageHitResult` | imageSrc, imageAlt, x, y, width, height, found |
+| `TSPageInfo` | chapterTitle, currentPage, totalPages, progress, firstBlockIndex, lastBlockIndex |
+
+**新增方法**：
+
+| 方法签名 | 返回类型 |
+|---------|---------|
+| `-layoutCover:pageWidth:pageHeight:` | `TSPage *` |
+| `-hitTest:x:y:` | `TSHitTestResult *` |
+| `-wordAtPoint:x:y:` | `TSWordRange *` |
+| `-sentencesForPage:` | `NSArray<TSSentenceRange *> *` |
+| `-allSentences` | `NSArray<TSSentenceRange *> *` |
+| `-rectsForRange:blockIndex:charOffset:charLength:` | `NSArray<NSValue *> *` (CGRect) |
+| `-blockRect:blockIndex:` | `CGRect` |
+| `-hitTestImage:x:y:` | `TSImageHitResult *` |
+| `-pageInfoForPage:` | `TSPageInfo *` |
+
+### 21.2 Android JNI 新增
+
+**新增 JNI 函数**：
+
+| JNI 函数 | Java 返回类型 |
+|---------|-------------|
+| `nativeLayoutCover(ptr, imageSrc, pageWidth, pageHeight)` | `TSPage` |
+| `nativeHitTest(ptr, pageIndex, x, y)` | `TSHitTestResult` |
+| `nativeWordAtPoint(ptr, pageIndex, x, y)` | `TSWordRange` |
+| `nativeSentencesForPage(ptr, pageIndex)` | `List<TSSentenceRange>` |
+| `nativeAllSentences(ptr)` | `List<TSSentenceRange>` |
+| `nativeRectsForRange(ptr, pageIndex, blockIndex, charOffset, charLength)` | `List<TSTextRect>` |
+| `nativeBlockRect(ptr, pageIndex, blockIndex)` | `TSTextRect` |
+| `nativeHitTestImage(ptr, pageIndex, x, y)` | `TSImageHitResult` |
+| `nativePageInfo(ptr, pageIndex)` | `TSPageInfo` |
+
+---
+
+## 22. 文件清单
+
+### 新增文件
+
+| 文件 | 模块 | 主要定义 |
+|------|------|---------|
+| `include/typesetting/interaction.h` | 交互层 | `InteractionManager`, `HitTestResult`, `WordRange`, `SentenceRange`, `TextRect`, `ImageHitResult`, `PageInfo` |
+| `src/interaction.cpp` | 交互层 | InteractionManager 全部查询算法实现 |
+
+### 修改文件
+
+| 文件 | 变更内容 |
+|------|---------|
+| `include/typesetting/engine.h` | 新增 9 个查询 API + `lastResult_` / `lastChapterTitle_` / `interactionMgr_` 缓存字段 |
+| `src/engine.cpp` | 实现新 API，排版后更新缓存和交互管理器 |
+| `bindings/swift/TypesettingBridge.h` | 新增 5 个 ObjC 数据类 + 9 个方法声明 |
+| `bindings/swift/TypesettingBridge.mm` | 新增桥接实现 + 数据类型转换 |
+| `bindings/jni/TypesettingJNI.h` | 新增 9 个 JNI 函数声明 |
+| `bindings/jni/TypesettingJNI.cpp` | 新增 JNI 函数实现 + Java 对象构建 |
+
+### 不需要修改的文件
+
+| 文件 | 原因 |
+|------|------|
+| `CMakeLists.txt` | 已使用 `file(GLOB_RECURSE SOURCES src/*.cpp)` 自动包含新 cpp 文件 |
+| `include/typesetting/page.h` | 输出模型不变 |
+| `include/typesetting/layout.h` | 排版引擎接口不变 |
+| `src/layout.cpp` | 排版算法不变 |
+
+---
+
+## 23. 实施依赖与阶段
+
+```mermaid
+graph LR
+    subgraph "Phase 1: 基础设施"
+        A["interaction.h<br/>数据结构"]
+        B["Engine 缓存<br/>lastResult_"]
+        C["hitTest<br/>命中测试"]
+        D["getRectsForRange<br/>范围→矩形"]
+    end
+
+    subgraph "Phase 2: 特性 API"
+        E["wordAtPoint<br/>分词"]
+        F["getSentences<br/>句子分割"]
+        G["getBlockRect<br/>段落矩形"]
+        H["hitTestImage<br/>图片命中"]
+        I["layoutCover<br/>封面页"]
+        P["getPageInfo<br/>页面元信息"]
+    end
+
+    subgraph "Phase 3: 绑定层"
+        J["iOS 绑定"]
+        K["Android 绑定"]
+    end
+
+    A --> C
+    A --> D
+    B --> C
+    B --> D
+    B --> P
+    C --> E
+    C --> G
+    D --> F
+    B --> H
+    B --> I
+
+    E --> J
+    F --> J
+    G --> J
+    H --> J
+    I --> J
+    P --> J
+    E --> K
+    F --> K
+    G --> K
+    H --> K
+    I --> K
+    P --> K
+```
+
+---
+
+## 24. 向后兼容性（交互层）
+
+| 场景 | 保证 |
+|------|------|
+| 现有排版 API | 签名完全不变，行为不变 |
+| 排版输出格式 | Page / Line / TextRun / Decoration 结构不变 |
+| 性能影响 | 排版时仅新增一次 LayoutResult 拷贝缓存；查询操作无额外排版开销 |
+| 新增头文件 | `interaction.h` 独立于排版模块，不影响现有编译依赖 |
+| 封面页标识 | `pageIndex = -1` 不影响正文页码序列 |
+| 交互 API 可选 | 所有查询 API 为新增方法，不调用则零开销 |
+
+---
+
+## 25. 不在引擎范围的特性
+
+| 特性 | 归属层 | 说明 |
+|------|--------|------|
+| 自动翻页 | App 层 | 定时器 + `totalPages` 控制翻页节奏 |
+| 仿真翻页动画 | App 层 | OpenGL / Metal / Canvas 渲染卷页效果 |
+| 图片实际加载与渲染 | App 层 | 根据 `Decoration.imageSrc` + 坐标绘制 UIImage / Bitmap |
+| 双指缩放手势 | App 层 | UIPinchGestureRecognizer / ScaleGestureDetector |
+| 图片全屏查看器 | App 层 | 模态展示 + 手势缩放 + 拖拽平移 |
+| 页眉页脚渲染 | App 层 | 在 margin 区域用平台原生 API 绘制文字 |
+| TTS 语音播放 | App 层 | AVSpeechSynthesizer / TextToSpeech |
+| 高亮层绘制 | App 层 | 根据 `getRectsForRange` 返回的矩形绘制半透明覆盖层 |
+
+---
+
+## 26. 外部接口详细规格
+
+本节是平台集成的**完整 API 参考**，覆盖 C++ 核心接口、iOS 绑定接口、Android 绑定接口。
+
+### 26.1 C++ 核心接口 (Engine)
+
+#### 26.1.1 现有接口（不变）
+
+| 方法 | 参数 | 返回值 | 说明 |
+|------|------|--------|------|
+| `layoutHTML` | html: string, chapterId: string, style: Style, pageSize: PageSize | LayoutResult | 基础排版 |
+| `layoutHTML` | html: string, css: string, chapterId: string, style: Style, pageSize: PageSize | LayoutResult | CSS 排版 |
+| `layoutBlocks` | blocks: vector\<Block\>, chapterId: string, style: Style, pageSize: PageSize | LayoutResult | 预解析块排版 |
+| `relayout` | style: Style, pageSize: PageSize | LayoutResult | 使用缓存重新排版 |
+| `platform` | 无 | shared_ptr\<PlatformAdapter\> | 获取平台适配器 |
+
+#### 26.1.2 新增接口
+
+**封面排版**
+
+| 方法 | `layoutCover` |
+|------|--------------|
+| 参数 | `imageSrc`: string — 封面图片资源标识<br/>`pageSize`: PageSize — 页面尺寸 |
+| 返回值 | `Page` — 封面页（pageIndex=-1） |
+| 前置条件 | Engine 已初始化，PlatformAdapter 可用 |
+| 行为 | 调用 `platform.getImageSize(src)` 获取原始尺寸 → 等比缩放 fit → 居中 → 生成 Decoration |
+| 不依赖缓存 | 此方法不需要先调用 `layoutHTML`，可独立调用 |
+
+**命中测试**
+
+| 方法 | `hitTest` |
+|------|-----------|
+| 参数 | `pageIndex`: int — 页码（0-based）<br/>`x`: float — 页面坐标 x（px）<br/>`y`: float — 页面坐标 y（px） |
+| 返回值 | `HitTestResult` |
+| 前置条件 | 已调用过 `layoutHTML` 或 `relayout`（缓存有效） |
+| 行为 | 遍历 page.lines → line.runs → 查找包含 (x,y) 的 run → 计算字符偏移 |
+| 边界情况 | pageIndex 越界 → `found=false`；点击在行间空白 → 返回最近行的行尾 |
+
+**分词查询**
+
+| 方法 | `wordAtPoint` |
+|------|---------------|
+| 参数 | `pageIndex`: int<br/>`x`: float<br/>`y`: float |
+| 返回值 | `WordRange` |
+| 前置条件 | 缓存有效 |
+| 行为 | 先调用 `hitTest` → 在 block.plainText() 中向左右扩展 → 返回词边界 |
+| 英文规则 | 以空格、标点为词边界 |
+| CJK 规则 | 单个 CJK 字符为一词（U+4E00–U+9FFF, U+3040–U+30FF） |
+| 特殊情况 | 命中空格/标点 → 返回 charLength=0 的空 WordRange |
+
+**句子分割**
+
+| 方法 | `getSentences` |
+|------|----------------|
+| 参数 | `pageIndex`: int |
+| 返回值 | `vector<SentenceRange>` — 页面内所有句子 |
+| 前置条件 | 缓存有效 |
+| 行为 | 遍历页面 block 范围 → 对每个 block 的 plainText 执行分句 → 返回有序列表 |
+| 分句规则 | 英文: `.!?` + (空格+大写 或 文本结尾)；中文: `。！？` |
+| 跨行句子 | 一个句子可能跨越多行，使用 `getRectsForRange` 获取全部矩形 |
+
+| 方法 | `getAllSentences` |
+|------|-------------------|
+| 参数 | 无 |
+| 返回值 | `vector<SentenceRange>` — 全章节所有句子 |
+| 说明 | 遍历所有 block，不限定页面范围 |
+
+**范围→矩形**
+
+| 方法 | `getRectsForRange` |
+|------|---------------------|
+| 参数 | `pageIndex`: int<br/>`blockIndex`: int — 目标 block 索引<br/>`charOffset`: int — Block plainText 中的起始字节偏移<br/>`charLength`: int — 字节长度 |
+| 返回值 | `vector<TextRect>` — 覆盖该范围的所有矩形 |
+| 前置条件 | 缓存有效 |
+| 行为 | 遍历 page 中 blockIndex 匹配的 runs → 计算与请求范围的重叠 → 按比例裁剪出精确矩形 |
+| 多行范围 | 返回多个矩形，每行一个（或每个 run 重叠段一个） |
+| 矩形坐标 | 与 Page 坐标系一致（页面左上角为原点） |
+
+**段落矩形**
+
+| 方法 | `getBlockRect` |
+|------|----------------|
+| 参数 | `pageIndex`: int<br/>`blockIndex`: int |
+| 返回值 | `TextRect` — 段落的 bounding box |
+| 说明 | 从所有匹配的 run 计算最小外接矩形 |
+| 未找到 | 若 blockIndex 不在页面范围内，返回全零 TextRect |
+
+**图片命中测试**
+
+| 方法 | `hitTestImage` |
+|------|----------------|
+| 参数 | `pageIndex`: int<br/>`x`: float<br/>`y`: float |
+| 返回值 | `ImageHitResult` |
+| 行为 | 遍历 page.decorations → 查找 type=ImagePlaceholder 且点在矩形内 |
+| 多张图片 | 返回第一个命中的图片（按 decorations 顺序） |
+
+**页面元信息**
+
+| 方法 | `getPageInfo` |
+|------|---------------|
+| 参数 | `pageIndex`: int |
+| 返回值 | `PageInfo` |
+| 前置条件 | 缓存有效 |
+| 行为 | 从缓存的 LayoutResult 和章节信息构建 PageInfo |
+| pageIndex 越界 | 返回 currentPage=0, totalPages=0, progress=0 |
+
+### 26.2 iOS 绑定接口 (TypesettingBridge)
+
+#### 26.2.1 新增数据类
+
+**TSHitTestResult**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `blockIndex` | `NSInteger` | 命中的 Block 索引（-1 = 未命中） |
+| `lineIndex` | `NSInteger` | 命中的 Line 索引 |
+| `runIndex` | `NSInteger` | 命中的 TextRun 索引 |
+| `charOffset` | `NSInteger` | Block plainText 中的字节偏移 |
+| `found` | `BOOL` | 是否命中 |
+
+**TSWordRange**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `blockIndex` | `NSInteger` | 所属 Block 索引 |
+| `charOffset` | `NSInteger` | Block plainText 中的起始偏移 |
+| `charLength` | `NSInteger` | 词的字节长度 |
+| `text` | `NSString *` | 词文本 |
+
+**TSSentenceRange**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `blockIndex` | `NSInteger` | 所属 Block 索引 |
+| `charOffset` | `NSInteger` | Block plainText 中的起始偏移 |
+| `charLength` | `NSInteger` | 句子的字节长度 |
+| `text` | `NSString *` | 句子文本 |
+
+**TSImageHitResult**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `imageSrc` | `NSString *` | 图片资源标识 |
+| `imageAlt` | `NSString *` | 图片替代文本 |
+| `x` / `y` / `width` / `height` | `CGFloat` | 图片在页面上的矩形 |
+| `found` | `BOOL` | 是否命中 |
+
+**TSPageInfo**
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `chapterTitle` | `NSString *` | 章节标题 |
+| `currentPage` | `NSInteger` | 当前页码（1-based） |
+| `totalPages` | `NSInteger` | 总页数 |
+| `progress` | `CGFloat` | 阅读进度 0.0 ~ 1.0 |
+| `firstBlockIndex` | `NSInteger` | 页面首 Block 索引 |
+| `lastBlockIndex` | `NSInteger` | 页面末 Block 索引 |
+
+#### 26.2.2 新增方法
+
+**TypesettingBridge**
+
+| 方法 | 参数 | 返回值 |
+|------|------|--------|
+| `-layoutCover:pageWidth:pageHeight:` | `imageSrc`: NSString, `pageWidth`: CGFloat, `pageHeight`: CGFloat | `TSPage *` |
+| `-hitTestOnPage:x:y:` | `pageIndex`: NSInteger, `x`: CGFloat, `y`: CGFloat | `TSHitTestResult *` |
+| `-wordAtPointOnPage:x:y:` | `pageIndex`: NSInteger, `x`: CGFloat, `y`: CGFloat | `TSWordRange *` |
+| `-sentencesForPage:` | `pageIndex`: NSInteger | `NSArray<TSSentenceRange *> *` |
+| `-allSentences` | 无 | `NSArray<TSSentenceRange *> *` |
+| `-rectsForRangeOnPage:blockIndex:charOffset:charLength:` | `pageIndex`: NSInteger, `blockIndex`: NSInteger, `charOffset`: NSInteger, `charLength`: NSInteger | `NSArray<NSValue *> *`（每个 NSValue 包含 CGRect） |
+| `-blockRectOnPage:blockIndex:` | `pageIndex`: NSInteger, `blockIndex`: NSInteger | `CGRect`（NSValue 包装，未找到返回 CGRectZero） |
+| `-hitTestImageOnPage:x:y:` | `pageIndex`: NSInteger, `x`: CGFloat, `y`: CGFloat | `TSImageHitResult *` |
+| `-pageInfoForPage:` | `pageIndex`: NSInteger | `TSPageInfo *` |
+
+#### 26.2.3 iOS 集成示例场景
+
+```mermaid
+sequenceDiagram
+    participant VC as UIViewController
+    participant Bridge as TypesettingBridge
+    participant Render as RenderView
+
+    Note over VC: 场景 1: TTS 句子高亮
+    VC->>Bridge: sentencesForPage(currentPage)
+    Bridge-->>VC: [TSSentenceRange]
+    loop 每个句子
+        VC->>Bridge: rectsForRangeOnPage(page, s.blockIndex, s.charOffset, s.charLength)
+        Bridge-->>VC: [CGRect]
+        VC->>Render: drawHighlightRects(rects, color)
+        VC->>VC: AVSpeechSynthesizer.speak(s.text)
+        VC->>VC: 等待语音完成 → 下一句
+    end
+
+    Note over VC: 场景 2: 双击段落
+    VC->>Bridge: hitTestOnPage(page, tapX, tapY)
+    Bridge-->>VC: TSHitTestResult(blockIndex=3)
+    VC->>Bridge: blockRectOnPage(page, blockIndex=3)
+    Bridge-->>VC: CGRect
+    VC->>Render: highlightRect(rect)
+
+    Note over VC: 场景 3: 长按选词
+    VC->>Bridge: wordAtPointOnPage(page, longPressX, longPressY)
+    Bridge-->>VC: TSWordRange(text="hello", charOffset=42, charLength=5)
+    VC->>Bridge: rectsForRangeOnPage(page, blockIndex, 42, 5)
+    Bridge-->>VC: [CGRect]
+    VC->>Render: showSelectionHandles(rects)
+
+    Note over VC: 场景 4: 图片点击
+    VC->>Bridge: hitTestImageOnPage(page, tapX, tapY)
+    Bridge-->>VC: TSImageHitResult(found=true, imageSrc="cover.jpg")
+    VC->>VC: presentImageViewer(imageSrc)
+
+    Note over VC: 场景 5: 页眉页脚
+    VC->>Bridge: pageInfoForPage(currentPage)
+    Bridge-->>VC: TSPageInfo(title="Chapter 1", currentPage=3, totalPages=42, progress=0.07)
+    VC->>Render: drawHeader(title, inMarginTop)
+    VC->>Render: drawFooter("3 / 42", inMarginBottom)
+```
+
+### 26.3 Android 绑定接口 (TypesettingJNI)
+
+#### 26.3.1 新增 Java 数据类
+
+所有数据类位于 `com.readmigo.typesetting` 包。
+
+**TSHitTestResult**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `blockIndex` | `int` | `I` |
+| `lineIndex` | `int` | `I` |
+| `runIndex` | `int` | `I` |
+| `charOffset` | `int` | `I` |
+| `found` | `boolean` | `Z` |
+
+**TSWordRange**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `blockIndex` | `int` | `I` |
+| `charOffset` | `int` | `I` |
+| `charLength` | `int` | `I` |
+| `text` | `String` | `Ljava/lang/String;` |
+
+**TSSentenceRange**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `blockIndex` | `int` | `I` |
+| `charOffset` | `int` | `I` |
+| `charLength` | `int` | `I` |
+| `text` | `String` | `Ljava/lang/String;` |
+
+**TSTextRect**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `x` | `float` | `F` |
+| `y` | `float` | `F` |
+| `width` | `float` | `F` |
+| `height` | `float` | `F` |
+
+**TSImageHitResult**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `imageSrc` | `String` | `Ljava/lang/String;` |
+| `imageAlt` | `String` | `Ljava/lang/String;` |
+| `x` / `y` / `width` / `height` | `float` | `F` |
+| `found` | `boolean` | `Z` |
+
+**TSPageInfo**
+
+| 字段 | 类型 | JNI 签名 |
+|------|------|---------|
+| `chapterTitle` | `String` | `Ljava/lang/String;` |
+| `currentPage` | `int` | `I` |
+| `totalPages` | `int` | `I` |
+| `progress` | `float` | `F` |
+| `firstBlockIndex` | `int` | `I` |
+| `lastBlockIndex` | `int` | `I` |
+
+#### 26.3.2 新增 JNI 函数
+
+| JNI 函数 | JNI 签名 | 说明 |
+|---------|---------|------|
+| `nativeLayoutCover` | `(JLjava/lang/String;FF)Lcom/readmigo/typesetting/TSPage;` | ptr + imageSrc + pageW + pageH → TSPage |
+| `nativeHitTest` | `(JIFF)Lcom/readmigo/typesetting/TSHitTestResult;` | ptr + pageIndex + x + y → TSHitTestResult |
+| `nativeWordAtPoint` | `(JIFF)Lcom/readmigo/typesetting/TSWordRange;` | ptr + pageIndex + x + y → TSWordRange |
+| `nativeSentencesForPage` | `(JI)Ljava/util/List;` | ptr + pageIndex → List\<TSSentenceRange\> |
+| `nativeAllSentences` | `(J)Ljava/util/List;` | ptr → List\<TSSentenceRange\> |
+| `nativeRectsForRange` | `(JIIII)Ljava/util/List;` | ptr + pageIndex + blockIndex + charOffset + charLength → List\<TSTextRect\> |
+| `nativeBlockRect` | `(JII)Lcom/readmigo/typesetting/TSTextRect;` | ptr + pageIndex + blockIndex → TSTextRect |
+| `nativeHitTestImage` | `(JIFF)Lcom/readmigo/typesetting/TSImageHitResult;` | ptr + pageIndex + x + y → TSImageHitResult |
+| `nativePageInfo` | `(JI)Lcom/readmigo/typesetting/TSPageInfo;` | ptr + pageIndex → TSPageInfo |
+
+#### 26.3.3 Android 集成示例场景
+
+```mermaid
+sequenceDiagram
+    participant Activity as ReaderActivity
+    participant Engine as TypesettingEngine (Kotlin)
+    participant JNI as Native JNI
+    participant Canvas as ReaderCanvas
+
+    Note over Activity: 场景 1: TTS 朗读 + 高亮
+    Activity->>Engine: sentencesForPage(page)
+    Engine->>JNI: nativeSentencesForPage(ptr, page)
+    JNI-->>Engine: List~TSSentenceRange~
+    Engine-->>Activity: sentences
+    loop 每个 sentence
+        Activity->>Engine: rectsForRange(page, s.blockIndex, s.charOffset, s.charLength)
+        Engine->>JNI: nativeRectsForRange(...)
+        JNI-->>Engine: List~TSTextRect~
+        Engine-->>Activity: rects
+        Activity->>Canvas: drawHighlight(rects)
+        Activity->>Activity: TextToSpeech.speak(s.text)
+    end
+
+    Note over Activity: 场景 2: 长按选词
+    Activity->>Engine: wordAtPoint(page, x, y)
+    Engine->>JNI: nativeWordAtPoint(ptr, page, x, y)
+    JNI-->>Engine: TSWordRange
+    Engine-->>Activity: word
+    Activity->>Engine: rectsForRange(page, word.blockIndex, word.charOffset, word.charLength)
+    Engine-->>Activity: rects
+    Activity->>Canvas: showSelectionPopup(word.text, rects)
+
+    Note over Activity: 场景 3: 页眉页脚
+    Activity->>Engine: pageInfo(page)
+    Engine->>JNI: nativePageInfo(ptr, page)
+    JNI-->>Engine: TSPageInfo
+    Engine-->>Activity: info
+    Activity->>Canvas: drawHeaderFooter(info.chapterTitle, info.currentPage, info.totalPages)
+```
+
+### 26.4 错误处理约定
+
+| 场景 | C++ 行为 | iOS 绑定 | Android 绑定 |
+|------|---------|---------|-------------|
+| 缓存为空（未调用 layoutHTML） | 返回默认值（found=false 等） | 返回 nil 或默认对象 | 返回 null 或默认对象 |
+| pageIndex 越界 | 返回 found=false / 空列表 | 同左 | 同左 |
+| blockIndex 不在页面范围 | 返回空矩形 / 空列表 | CGRectZero / 空数组 | 零值 TSTextRect / 空 List |
+| 空文本 Block | getSentences 跳过 | 不包含在结果中 | 不包含在结果中 |
+| 图片无尺寸信息 | layoutCover 铺满页面 | 同左 | 同左 |
+
+### 26.5 线程安全约定
+
+| 约定 | 说明 |
+|------|------|
+| 单线程排版 | `layoutHTML` / `relayout` 必须在同一线程调用（写操作修改缓存） |
+| 查询线程安全 | 排版完成后，所有查询 API（hitTest / getSentences 等）为只读操作，可在任意线程调用 |
+| 排版期间禁止查询 | 排版和查询不能并发——排版会替换缓存 |
+| 建议模式 | iOS: 在主线程排版和查询；Android: 在后台线程排版，结果回主线程后查询 |
