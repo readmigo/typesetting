@@ -1211,3 +1211,21 @@ TEST(ErrorTest, NormalContentNoOverflowWarning) {
         EXPECT_NE(w, LayoutWarning::LayoutOverflow);
     }
 }
+
+// --- Task 6: :last-child ---
+
+TEST(DocumentTest, ParseLastChild) {
+    auto blocks = parseHTML(
+        "<section>"
+        "<p>First</p>"
+        "<p>Middle</p>"
+        "<p>Last</p>"
+        "</section>");
+    ASSERT_GE(blocks.size(), 3);
+    EXPECT_TRUE(blocks[0].isFirstChild);
+    EXPECT_FALSE(blocks[0].isLastChild);
+    EXPECT_FALSE(blocks[1].isFirstChild);
+    EXPECT_FALSE(blocks[1].isLastChild);
+    EXPECT_FALSE(blocks[2].isFirstChild);
+    EXPECT_TRUE(blocks[2].isLastChild);
+}

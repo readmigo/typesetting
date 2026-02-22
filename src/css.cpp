@@ -434,6 +434,22 @@ CSSProperties parseProperties(const std::string& block) {
             if (parseNumericValue(value, num, unit)) {
                 props.paddingLeft = num;
             }
+        } else if (property == "text-transform") {
+            if (value == "uppercase") props.textTransform = TextTransform::Uppercase;
+            else if (value == "lowercase") props.textTransform = TextTransform::Lowercase;
+            else if (value == "capitalize") props.textTransform = TextTransform::Capitalize;
+            else if (value == "none") props.textTransform = TextTransform::None;
+        } else if (property == "vertical-align") {
+            if (value == "super" || value == "sub" || value == "baseline") {
+                props.verticalAlign = value;
+            }
+        } else if (property == "white-space") {
+            if (value == "nowrap" || value == "normal") {
+                props.whiteSpace = value;
+            }
+        } else if (property == "font-variant-numeric") {
+            if (value == "oldstyle-nums") props.fontVariantNumeric = true;
+            else if (value == "normal") props.fontVariantNumeric = false;
         } else if (property == "border-top") {
             // border-top: 1px solid ...
             std::istringstream btStream(value);
@@ -545,6 +561,10 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.display.has_value()) display = other.display;
     if (other.paddingLeft.has_value()) paddingLeft = other.paddingLeft;
     if (other.hangingPunctuation.has_value()) hangingPunctuation = other.hangingPunctuation;
+    if (other.textTransform.has_value()) textTransform = other.textTransform;
+    if (other.verticalAlign.has_value()) verticalAlign = other.verticalAlign;
+    if (other.whiteSpace.has_value()) whiteSpace = other.whiteSpace;
+    if (other.fontVariantNumeric.has_value()) fontVariantNumeric = other.fontVariantNumeric;
     if (other.borderTopWidth.has_value()) borderTopWidth = other.borderTopWidth;
     if (other.widthPercent.has_value()) widthPercent = other.widthPercent;
 }

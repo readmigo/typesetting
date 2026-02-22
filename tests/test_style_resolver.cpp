@@ -1053,3 +1053,163 @@ TEST(StyleResolverTest, InlineNoMatchBlockSelector) {
     // "p" is not an inline tag, so inlineSelectorMatches should return false
     EXPECT_FALSE(resolved.inlineStyles[0][0].smallCaps.has_value());
 }
+
+// --- Task 3: text-transform ---
+
+TEST(StyleResolverTest, TextTransformBlockLevel) {
+    auto sheet = CSSStylesheet::parse("blockquote { text-transform: uppercase; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Blockquote;
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_EQ(resolved.blockStyles[0].textTransform, TextTransform::Uppercase);
+}
+
+TEST(StyleResolverTest, TextTransformInlineLevel) {
+    auto sheet = CSSStylesheet::parse("abbr { text-transform: lowercase; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    InlineElement inl;
+    inl.htmlTag = "abbr";
+    inl.text = "AD";
+    block.inlines.push_back(inl);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    ASSERT_TRUE(resolved.inlineStyles[0][0].textTransform.has_value());
+    EXPECT_EQ(resolved.inlineStyles[0][0].textTransform.value(), TextTransform::Lowercase);
+}
+
+// --- Task 4: vertical-align ---
+
+TEST(StyleResolverTest, VerticalAlignSuperFromCSS) {
+    auto sheet = CSSStylesheet::parse("[epub\\|type~=\"noteref\"] { vertical-align: super; font-size: smaller; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    InlineElement inl;
+    inl.type = InlineType::Link;
+    inl.htmlTag = "a";
+    inl.epubType = "noteref";
+    inl.text = "1";
+    block.inlines.push_back(inl);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_TRUE(resolved.inlineStyles[0][0].isSuperscript);
+    ASSERT_TRUE(resolved.inlineStyles[0][0].fontSizeMultiplier.has_value());
+    EXPECT_NEAR(resolved.inlineStyles[0][0].fontSizeMultiplier.value(), 0.833f, 0.01f);
+}
+
+TEST(StyleResolverTest, VerticalAlignSubFromCSS) {
+    auto sheet = CSSStylesheet::parse("sub { vertical-align: sub; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    InlineElement inl;
+    inl.htmlTag = "sub";
+    inl.text = "2";
+    block.inlines.push_back(inl);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_TRUE(resolved.inlineStyles[0][0].isSubscript);
+    EXPECT_FALSE(resolved.inlineStyles[0][0].isSuperscript);
+}
+
+// --- Task 5: white-space ---
+
+TEST(StyleResolverTest, WhiteSpaceNoWrap) {
+    auto sheet = CSSStylesheet::parse("abbr { white-space: nowrap; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    InlineElement inl;
+    inl.htmlTag = "abbr";
+    inl.text = "Mr.";
+    block.inlines.push_back(inl);
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_TRUE(resolved.inlineStyles[0][0].noWrap);
+}
+
+// --- Task 6: :last-child ---
+
+TEST(StyleResolverTest, LastChildMatches) {
+    auto sheet = CSSStylesheet::parse("p:last-child { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.isLastChild = true;
+    block.isFirstChild = false;
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_EQ(resolved.blockStyles[0].textIndent, 0);
+}
+
+TEST(StyleResolverTest, LastChildNoMatch) {
+    auto sheet = CSSStylesheet::parse("p:last-child { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.isLastChild = false;
+    block.isFirstChild = true;
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    // Default paragraph has textIndent = 1em = 16.0
+    EXPECT_NE(resolved.blockStyles[0].textIndent, 0);
+}
+
+// --- Task 7: font-variant-numeric ---
+
+TEST(StyleResolverTest, FontVariantNumericOldstyle) {
+    auto sheet = CSSStylesheet::parse("p { font-variant-numeric: oldstyle-nums; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_TRUE(resolved.blockStyles[0].oldstyleNums);
+}
+
+TEST(StyleResolverTest, FontVariantNumericNormal) {
+    auto sheet = CSSStylesheet::parse("p { font-variant-numeric: normal; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+    auto resolved = resolver.resolve({block}, userStyle);
+
+    EXPECT_FALSE(resolved.blockStyles[0].oldstyleNums);
+}

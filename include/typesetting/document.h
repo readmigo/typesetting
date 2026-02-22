@@ -94,6 +94,7 @@ struct Block {
     std::string parentEpubType;           // Parent element's epub:type
     std::string parentId;                 // Parent element's id attribute
     bool isFirstChild = true;             // Is this the first block-child of its parent?
+    bool isLastChild = false;              // Is this the last block-child of its parent?
     std::vector<std::string> previousSiblingTags;  // Previous sibling tags [0]=immediate, [1]=before that, etc.
     std::string id;                       // HTML id attribute
 

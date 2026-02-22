@@ -2,8 +2,36 @@
 #include "typesetting/style_resolver.h"
 #include "typesetting/log.h"
 #include <algorithm>
+#include <cctype>
 
 namespace typesetting {
+
+namespace {
+
+std::string applyTextTransform(const std::string& text, TextTransform transform) {
+    if (transform == TextTransform::None) return text;
+    std::string result = text;
+    if (transform == TextTransform::Uppercase) {
+        std::transform(result.begin(), result.end(), result.begin(),
+                       [](unsigned char c) { return std::toupper(c); });
+    } else if (transform == TextTransform::Lowercase) {
+        std::transform(result.begin(), result.end(), result.begin(),
+                       [](unsigned char c) { return std::tolower(c); });
+    } else if (transform == TextTransform::Capitalize) {
+        bool newWord = true;
+        for (size_t i = 0; i < result.size(); ++i) {
+            if (std::isspace(static_cast<unsigned char>(result[i]))) {
+                newWord = true;
+            } else if (newWord) {
+                result[i] = std::toupper(static_cast<unsigned char>(result[i]));
+                newWord = false;
+            }
+        }
+    }
+    return result;
+}
+
+} // anonymous namespace
 
 class LayoutEngine::Impl {
 public:
@@ -549,8 +577,15 @@ private:
             if (inlineMetrics.ascent > maxAscent) maxAscent = inlineMetrics.ascent;
             if (inlineMetrics.descent > maxDescent) maxDescent = inlineMetrics.descent;
 
+            // Apply text-transform
+            TextTransform effectiveTransform = bstyle.textTransform;
+            if (inIdx < static_cast<int>(inlineStyles.size()) &&
+                inlineStyles[inIdx].textTransform.has_value()) {
+                effectiveTransform = *inlineStyles[inIdx].textTransform;
+            }
+
             // Process the text, breaking into lines as needed
-            std::string remaining = inl.text;
+            std::string remaining = applyTextTransform(inl.text, effectiveTransform);
             int charOffset = 0;
 
             while (!remaining.empty()) {

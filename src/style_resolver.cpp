@@ -307,6 +307,9 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
                 if (selector.pseudoClass == "first-child" && !block.isFirstChild) {
                     return false;
                 }
+                if (selector.pseudoClass == "last-child" && !block.isLastChild) {
+                    return false;
+                }
             }
 
             // Parent must match
@@ -340,6 +343,7 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
         case SelectorType::PseudoFirstChild: {
             if (!iequals(selector.element, effectiveTag)) return false;
             if (!selector.className.empty() && !containsClass(block.className, selector.className)) return false;
+            if (selector.pseudoClass == "last-child") return block.isLastChild;
             return block.isFirstChild;
         }
 
@@ -423,6 +427,14 @@ void StyleResolver::applyProperties(
         } else if (props.display.value() == "block") {
             style.display = BlockComputedStyle::Display::Block;
         }
+    }
+
+    if (props.textTransform.has_value()) {
+        style.textTransform = props.textTransform.value();
+    }
+
+    if (props.fontVariantNumeric.has_value()) {
+        style.oldstyleNums = props.fontVariantNumeric.value();
     }
 
     if (props.hangingPunctuation.has_value()) {
@@ -553,6 +565,24 @@ void StyleResolver::applyInlineProperties(
         } else {
             style.smallCaps = false;
         }
+    }
+    if (props.textTransform.has_value()) {
+        style.textTransform = props.textTransform.value();
+    }
+    if (props.verticalAlign.has_value()) {
+        if (props.verticalAlign.value() == "super") {
+            style.isSuperscript = true;
+            style.isSubscript = false;
+        } else if (props.verticalAlign.value() == "sub") {
+            style.isSubscript = true;
+            style.isSuperscript = false;
+        } else {
+            style.isSuperscript = false;
+            style.isSubscript = false;
+        }
+    }
+    if (props.whiteSpace.has_value()) {
+        style.noWrap = (props.whiteSpace.value() == "nowrap");
     }
 }
 

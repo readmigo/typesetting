@@ -56,6 +56,14 @@ struct Style {
     }
 };
 
+/// Text transformation modes
+enum class TextTransform {
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+};
+
 /// Horizontal rule visual properties
 struct HRStyle {
     float borderWidth = 1.0f;
@@ -90,20 +98,15 @@ struct BlockComputedStyle {
     float marginRight = 0;
     float paddingLeft = 0;
 
+    // Text transform
+    TextTransform textTransform = TextTransform::None;
+
     // Advanced typography
     bool oldstyleNums = false;
     bool hangingPunctuation = false;
 
     // HR specific
     std::optional<HRStyle> hrStyle;
-};
-
-/// Text transformation modes
-enum class TextTransform {
-    None,
-    Uppercase,
-    Lowercase,
-    Capitalize,
 };
 
 /// Computed style for a single inline element within a block.

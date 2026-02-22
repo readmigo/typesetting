@@ -427,6 +427,14 @@ std::vector<Block> parseHTML(const std::string& html) {
                         inBlock = false;
                     }
                     if (!parentStack.empty()) {
+                        // Mark the last child of the closing container
+                        const auto& closingTag = parentStack.back().tag;
+                        for (int li = static_cast<int>(blocks.size()) - 1; li >= 0; --li) {
+                            if (blocks[li].parentTag == closingTag) {
+                                blocks[li].isLastChild = true;
+                                break;
+                            }
+                        }
                         parentStack.pop_back();
                     }
                 }
@@ -475,6 +483,13 @@ std::vector<Block> parseHTML(const std::string& html) {
                 // blockquote is also a container - pop on close
                 if (tag.name == "blockquote") {
                     if (!parentStack.empty()) {
+                        const auto& closingTag = parentStack.back().tag;
+                        for (int li = static_cast<int>(blocks.size()) - 1; li >= 0; --li) {
+                            if (blocks[li].parentTag == closingTag) {
+                                blocks[li].isLastChild = true;
+                                break;
+                            }
+                        }
                         parentStack.pop_back();
                     }
                 }

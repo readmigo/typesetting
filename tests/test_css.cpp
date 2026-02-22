@@ -424,3 +424,77 @@ TEST(CSSTest, IdSpecificity) {
     EXPECT_EQ(sheet.rules[0].selector.specificity(), 1);   // element
     EXPECT_EQ(sheet.rules[1].selector.specificity(), 100);  // id
 }
+
+// --- Task 3: text-transform ---
+
+TEST(CSSTest, ParseTextTransform) {
+    auto sheet = CSSStylesheet::parse("p { text-transform: uppercase; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.textTransform.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.textTransform.value(), TextTransform::Uppercase);
+}
+
+TEST(CSSTest, ParseTextTransformLowercase) {
+    auto sheet = CSSStylesheet::parse("blockquote { text-transform: lowercase; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.textTransform.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.textTransform.value(), TextTransform::Lowercase);
+}
+
+TEST(CSSTest, ParseTextTransformCapitalize) {
+    auto sheet = CSSStylesheet::parse("h1 { text-transform: capitalize; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.textTransform.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.textTransform.value(), TextTransform::Capitalize);
+}
+
+// --- Task 4: vertical-align ---
+
+TEST(CSSTest, ParseVerticalAlign) {
+    auto sheet = CSSStylesheet::parse("a { vertical-align: super; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.verticalAlign.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.verticalAlign.value(), "super");
+}
+
+TEST(CSSTest, ParseVerticalAlignSub) {
+    auto sheet = CSSStylesheet::parse("span { vertical-align: sub; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.verticalAlign.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.verticalAlign.value(), "sub");
+}
+
+// --- Task 5: white-space ---
+
+TEST(CSSTest, ParseWhiteSpace) {
+    auto sheet = CSSStylesheet::parse("abbr { white-space: nowrap; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.whiteSpace.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.whiteSpace.value(), "nowrap");
+}
+
+// --- Task 6: :last-child ---
+
+TEST(CSSTest, ParseLastChildSelector) {
+    auto sheet = CSSStylesheet::parse("p:last-child { text-indent: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    EXPECT_EQ(sheet.rules[0].selector.type, SelectorType::PseudoFirstChild);
+    EXPECT_EQ(sheet.rules[0].selector.element, "p");
+    EXPECT_EQ(sheet.rules[0].selector.pseudoClass, "last-child");
+}
+
+// --- Task 7: font-variant-numeric ---
+
+TEST(CSSTest, ParseFontVariantNumeric) {
+    auto sheet = CSSStylesheet::parse("body { font-variant-numeric: oldstyle-nums; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.fontVariantNumeric.has_value());
+    EXPECT_TRUE(sheet.rules[0].properties.fontVariantNumeric.value());
+}
+
+TEST(CSSTest, ParseFontVariantNumericNormal) {
+    auto sheet = CSSStylesheet::parse("body { font-variant-numeric: normal; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    ASSERT_TRUE(sheet.rules[0].properties.fontVariantNumeric.has_value());
+    EXPECT_FALSE(sheet.rules[0].properties.fontVariantNumeric.value());
+}

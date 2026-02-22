@@ -58,6 +58,10 @@ struct CSSProperties {
     std::optional<std::string> display;    // "none", "block", "inline-block"
     std::optional<float> paddingLeft;     // in em units
     std::optional<bool> hangingPunctuation;
+    std::optional<TextTransform> textTransform;
+    std::optional<std::string> verticalAlign;   // "super", "sub", "baseline"
+    std::optional<std::string> whiteSpace;      // "nowrap", "normal"
+    std::optional<bool> fontVariantNumeric;     // true = oldstyle-nums
     std::optional<float> borderTopWidth;   // in px
     std::optional<float> widthPercent;     // percentage (0-100)
 
