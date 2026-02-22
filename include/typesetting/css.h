@@ -18,6 +18,7 @@ enum class SelectorType {
     PseudoFirstChild,  // element:first-child
     Attribute,         // [epub|type~="value"]
     Universal,         // *
+    Id,                // #id
 };
 
 enum class FontVariant {
@@ -32,6 +33,8 @@ struct CSSSelector {
     std::string pseudoClass;     // e.g. "first-child"
     std::string attribute;       // Attribute name (for Attribute type)
     std::string attributeValue;  // Attribute value
+    std::string id;              // ID value (for #id selectors)
+    bool isChildCombinator = false;  // True if combinator with parent is > (child) vs space (descendant)
 
     // For compound selectors
     std::shared_ptr<CSSSelector> parent;           // For Descendant: the ancestor selector
@@ -50,8 +53,10 @@ struct CSSProperties {
     std::optional<FontStyle> fontStyle;
     std::optional<FontWeight> fontWeight;
     std::optional<FontVariant> fontVariant;
+    std::optional<float> fontSize;         // in em units (relative multiplier)
     std::optional<bool> hyphens;           // true = auto, false = none
-    std::optional<bool> displayNone;
+    std::optional<std::string> display;    // "none", "block", "inline-block"
+    std::optional<float> paddingLeft;     // in em units
     std::optional<bool> hangingPunctuation;
     std::optional<float> borderTopWidth;   // in px
     std::optional<float> widthPercent;     // percentage (0-100)

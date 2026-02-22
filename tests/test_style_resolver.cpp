@@ -55,7 +55,7 @@ TEST(StyleResolverTest, CSSOverridesDefault) {
     Block pblock;
     pblock.type = BlockType::Paragraph;
     pblock.htmlTag = "p";
-    pblock.previousSiblingTag = "h2";
+    pblock.previousSiblingTags = {"h2"};
 
     Style userStyle;
     userStyle.font.size = 18.0f;
@@ -469,4 +469,465 @@ TEST(StyleResolverTest, HangingPunctuationDisabledByDefault) {
     auto styles = resolver.resolve({block}, userStyle);
     ASSERT_EQ(styles.size(), 1);
     EXPECT_FALSE(styles[0].hangingPunctuation);
+}
+
+// =============================================================================
+// MARK: - Compound Selector Matching Tests (Task 1)
+// =============================================================================
+
+TEST(StyleResolverTest, CompoundElementClassMatches) {
+    auto sheet = CSSStylesheet::parse(
+        "p.epub-type-contains-word-z3998-salutation { font-variant: small-caps; }");
+    StyleResolver resolver(sheet);
+
+    // Should match: p with the right class
+    Block matchBlock;
+    matchBlock.type = BlockType::Paragraph;
+    matchBlock.htmlTag = "p";
+    matchBlock.className = "epub-type-contains-word-z3998-salutation";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({matchBlock}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_TRUE(styles[0].smallCaps);
+}
+
+TEST(StyleResolverTest, CompoundElementClassNoMatchWrongTag) {
+    auto sheet = CSSStylesheet::parse(
+        "p.epub-type-contains-word-z3998-salutation { font-variant: small-caps; }");
+    StyleResolver resolver(sheet);
+
+    // Should NOT match: div with the right class (wrong tag)
+    Block noMatchBlock;
+    noMatchBlock.type = BlockType::Paragraph;
+    noMatchBlock.htmlTag = "div";
+    noMatchBlock.className = "epub-type-contains-word-z3998-salutation";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({noMatchBlock}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FALSE(styles[0].smallCaps);
+}
+
+TEST(StyleResolverTest, CompoundElementClassNoMatchWrongClass) {
+    auto sheet = CSSStylesheet::parse(
+        "p.epub-type-contains-word-z3998-salutation { font-variant: small-caps; }");
+    StyleResolver resolver(sheet);
+
+    // Should NOT match: p with wrong class
+    Block noMatchBlock;
+    noMatchBlock.type = BlockType::Paragraph;
+    noMatchBlock.htmlTag = "p";
+    noMatchBlock.className = "other-class";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({noMatchBlock}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FALSE(styles[0].smallCaps);
+}
+
+TEST(StyleResolverTest, CompoundDescendantParentMatches) {
+    auto sheet = CSSStylesheet::parse(
+        "section.dedication p { text-indent: 0; font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+    block.parentClassName = "dedication";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
+    EXPECT_EQ(styles[0].font.style, FontStyle::Italic);
+}
+
+TEST(StyleResolverTest, CompoundDescendantParentNoMatchWrongClass) {
+    auto sheet = CSSStylesheet::parse(
+        "section.dedication p { text-indent: 0; font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+    block.parentClassName = "chapter";  // wrong class
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // Default paragraph text-indent is 1em = 16px, CSS should NOT match
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 16.0f);
+    EXPECT_EQ(styles[0].font.style, FontStyle::Normal);
+}
+
+// =============================================================================
+// MARK: - Font-size Application Tests (Task 3)
+// =============================================================================
+
+TEST(StyleResolverTest, CSSFontSizeApplied) {
+    auto sheet = CSSStylesheet::parse("p { font-size: 1.17em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // CSS font-size 1.17em * 20 = 23.4, and should be preserved (not overridden)
+    EXPECT_FLOAT_EQ(styles[0].font.size, 1.17f * 20.0f);
+}
+
+TEST(StyleResolverTest, CSSFontSizeSmallerApplied) {
+    auto sheet = CSSStylesheet::parse("p { font-size: smaller; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].font.size, 0.833f * 20.0f);
+}
+
+TEST(StyleResolverTest, CSSFontSizeNotOverriddenByUser) {
+    // When CSS sets font-size, user override should not replace it
+    auto sheet = CSSStylesheet::parse("p { font-size: 0.83em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 18.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // Should be 0.83 * 18 = 14.94, NOT overridden back to 18
+    EXPECT_FLOAT_EQ(styles[0].font.size, 0.83f * 18.0f);
+}
+
+// =============================================================================
+// MARK: - Padding-left Tests (Task 4)
+// =============================================================================
+
+TEST(StyleResolverTest, CSSPaddingLeftApplied) {
+    auto sheet = CSSStylesheet::parse("p { padding-left: 1em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].paddingLeft, 16.0f);  // 1em * 16
+}
+
+// =============================================================================
+// MARK: - Display Property Tests (Task 5)
+// =============================================================================
+
+TEST(StyleResolverTest, DisplayInlineBlock) {
+    auto sheet = CSSStylesheet::parse("p { display: inline-block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_EQ(styles[0].display, BlockComputedStyle::Display::InlineBlock);
+    EXPECT_FALSE(styles[0].hidden);
+}
+
+TEST(StyleResolverTest, DisplayBlock) {
+    auto sheet = CSSStylesheet::parse("p { display: block; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+
+    Style userStyle;
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_EQ(styles[0].display, BlockComputedStyle::Display::Block);
+    EXPECT_FALSE(styles[0].hidden);
+}
+
+// =============================================================================
+// MARK: - Child Combinator Matching Tests (Task 6)
+// =============================================================================
+
+TEST(StyleResolverTest, ChildCombinatorUniversalMatches) {
+    auto sheet = CSSStylesheet::parse("hgroup > * { font-weight: normal; margin: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Heading2;
+    block.htmlTag = "h2";
+    block.parentTag = "hgroup";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].marginTop, 0.0f);
+    EXPECT_FLOAT_EQ(styles[0].marginBottom, 0.0f);
+}
+
+TEST(StyleResolverTest, ChildCombinatorNoMatchWrongParent) {
+    auto sheet = CSSStylesheet::parse("hgroup > * { margin: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Heading2;
+    block.htmlTag = "h2";
+    block.parentTag = "section";  // wrong parent
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // Default heading2 marginTop is 3em = 48px, should NOT be 0
+    EXPECT_GT(styles[0].marginTop, 0.0f);
+}
+
+TEST(StyleResolverTest, ChildCombinatorWithClassMatches) {
+    auto sheet = CSSStylesheet::parse(
+        "section.dedication > * { font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.parentTag = "section";
+    block.parentClassName = "dedication";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_EQ(styles[0].font.style, FontStyle::Italic);
+}
+
+// =============================================================================
+// MARK: - Multi-level Adjacent Sibling Matching Tests (Task 7)
+// =============================================================================
+
+TEST(StyleResolverTest, MultiLevelAdjacentSiblingMatches) {
+    auto sheet = CSSStylesheet::parse("h2 + p + p { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.previousSiblingTags = {"p", "h2"};  // [0]=immediate prev, [1]=before that
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
+}
+
+TEST(StyleResolverTest, MultiLevelAdjacentSiblingNoMatchWrongOrder) {
+    auto sheet = CSSStylesheet::parse("h2 + p + p { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.previousSiblingTags = {"h2"};  // Only one previous sibling, need two
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // Default paragraph text-indent = 1em = 16px, should NOT be 0
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 16.0f);
+}
+
+TEST(StyleResolverTest, DescendantWithAdjacentSiblingMatches) {
+    auto sheet = CSSStylesheet::parse("hgroup h2 + p { font-size: 1.17em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.previousSiblingTags = {"h2"};
+    block.parentTag = "hgroup";
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].font.size, 1.17f * 20.0f);
+}
+
+TEST(StyleResolverTest, DescendantWithAdjacentSiblingNoMatchWrongParent) {
+    auto sheet = CSSStylesheet::parse("hgroup h2 + p { font-size: 1.17em; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.previousSiblingTags = {"h2"};
+    block.parentTag = "section";  // wrong parent
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // No CSS match → user font size applied
+    EXPECT_FLOAT_EQ(styles[0].font.size, 20.0f);
+}
+
+TEST(StyleResolverTest, HgroupFontSizeGradient) {
+    // Simulate SE hgroup font-size gradient: h2, h2+p (1.17em), h2+p+p (1em), h2+p+p+p (.83em)
+    auto sheet = CSSStylesheet::parse(
+        "hgroup h2 + p { font-size: 1.17em; }\n"
+        "hgroup h2 + p + p { font-size: 1em; }\n"
+        "hgroup h2 + p + p + p { font-size: .83em; }");
+    StyleResolver resolver(sheet);
+
+    Style userStyle;
+    userStyle.font.size = 20.0f;
+
+    // First p after h2
+    Block p1;
+    p1.type = BlockType::Paragraph;
+    p1.htmlTag = "p";
+    p1.previousSiblingTags = {"h2"};
+    p1.parentTag = "hgroup";
+
+    // Second p (after first p, which was after h2)
+    Block p2;
+    p2.type = BlockType::Paragraph;
+    p2.htmlTag = "p";
+    p2.previousSiblingTags = {"p", "h2"};
+    p2.parentTag = "hgroup";
+
+    // Third p
+    Block p3;
+    p3.type = BlockType::Paragraph;
+    p3.htmlTag = "p";
+    p3.previousSiblingTags = {"p", "p", "h2"};
+    p3.parentTag = "hgroup";
+
+    auto styles = resolver.resolve({p1, p2, p3}, userStyle);
+    ASSERT_EQ(styles.size(), 3);
+    EXPECT_FLOAT_EQ(styles[0].font.size, 1.17f * 20.0f);  // h2+p: 1.17em
+    EXPECT_FLOAT_EQ(styles[1].font.size, 1.0f * 20.0f);   // h2+p+p: 1em
+    EXPECT_FLOAT_EQ(styles[2].font.size, 0.83f * 20.0f);   // h2+p+p+p: .83em
+}
+
+// =============================================================================
+// MARK: - ID Selector Matching Tests (Task 8)
+// =============================================================================
+
+TEST(StyleResolverTest, IdSelectorMatches) {
+    auto sheet = CSSStylesheet::parse("#chapter-19 { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.id = "chapter-19";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
+}
+
+TEST(StyleResolverTest, IdSelectorNoMatch) {
+    auto sheet = CSSStylesheet::parse("#chapter-19 { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.id = "chapter-20";  // wrong id
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 16.0f);  // default 1em
+}
+
+TEST(StyleResolverTest, IdDescendantMatches) {
+    auto sheet = CSSStylesheet::parse(
+        "#chapter-19 blockquote { font-style: italic; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Blockquote;
+    block.htmlTag = "blockquote";
+    block.parentId = "chapter-19";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    EXPECT_EQ(styles[0].font.style, FontStyle::Italic);
+}
+
+TEST(StyleResolverTest, IdSpecificityOverridesElement) {
+    auto sheet = CSSStylesheet::parse(
+        "p { text-indent: 2em; }\n"
+        "#special { text-indent: 0; }");
+    StyleResolver resolver(sheet);
+
+    Block block;
+    block.type = BlockType::Paragraph;
+    block.htmlTag = "p";
+    block.id = "special";
+
+    Style userStyle;
+    userStyle.font.size = 16.0f;
+
+    auto styles = resolver.resolve({block}, userStyle);
+    ASSERT_EQ(styles.size(), 1);
+    // #special (specificity 100) > p (specificity 1), text-indent should be 0
+    EXPECT_FLOAT_EQ(styles[0].textIndent, 0.0f);
 }

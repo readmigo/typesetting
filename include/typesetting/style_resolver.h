@@ -30,7 +30,7 @@ private:
     void applyProperties(const CSSProperties& props, BlockComputedStyle& style, float baseFontSize) const;
 
     /// Apply user Style overrides as final layer
-    void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block) const;
+    void applyUserOverrides(BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet) const;
 };
 
 } // namespace typesetting

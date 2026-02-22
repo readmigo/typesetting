@@ -62,7 +62,8 @@ TEST(CSSTest, ParseMarginShorthand) {
 TEST(CSSTest, ParseDisplayNone) {
     auto sheet = CSSStylesheet::parse("h1 { display: none; }");
     ASSERT_GE(sheet.rules.size(), 1);
-    EXPECT_TRUE(sheet.rules[0].properties.displayNone.value_or(false));
+    EXPECT_TRUE(sheet.rules[0].properties.display.has_value());
+    EXPECT_EQ(sheet.rules[0].properties.display.value(), "none");
 }
 
 TEST(CSSTest, SkipAtRules) {
@@ -187,4 +188,239 @@ TEST(CSSTest, ParseMarginAuto) {
     auto& props = sheet.rules[0].properties;
     EXPECT_FLOAT_EQ(props.marginTop.value_or(-1), 1.5f);
     EXPECT_FLOAT_EQ(props.marginBottom.value_or(-1), 1.5f);
+}
+
+// =============================================================================
+// MARK: - Compound Selector Tests (Task 1)
+// =============================================================================
+
+TEST(CSSTest, ParseCompoundElementClass) {
+    auto sheet = CSSStylesheet::parse(
+        "p.epub-type-contains-word-z3998-salutation { font-variant: small-caps; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Element);
+    EXPECT_EQ(rule.selector.element, "p");
+    EXPECT_EQ(rule.selector.className, "epub-type-contains-word-z3998-salutation");
+    EXPECT_TRUE(rule.properties.fontVariant.has_value());
+    EXPECT_EQ(rule.properties.fontVariant.value(), FontVariant::SmallCaps);
+}
+
+TEST(CSSTest, ParseCompoundElementClassPseudo) {
+    auto sheet = CSSStylesheet::parse(
+        "p.special:first-child { text-indent: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::PseudoFirstChild);
+    EXPECT_EQ(rule.selector.element, "p");
+    EXPECT_EQ(rule.selector.className, "special");
+    EXPECT_EQ(rule.selector.pseudoClass, "first-child");
+}
+
+TEST(CSSTest, CompoundSelectorSpecificity) {
+    auto sheet = CSSStylesheet::parse(
+        "p { text-indent: 1em; }\n"
+        "p.special { text-indent: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 2);
+    // p = specificity 1, p.special = specificity 11 (element + class)
+    EXPECT_EQ(sheet.rules[0].selector.specificity(), 1);
+    EXPECT_EQ(sheet.rules[1].selector.specificity(), 11);
+}
+
+TEST(CSSTest, ParseCompoundInDescendant) {
+    auto sheet = CSSStylesheet::parse(
+        "section.dedication p { text-align: center; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Descendant);
+    EXPECT_EQ(rule.selector.element, "p");
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "section");
+    EXPECT_EQ(rule.selector.parent->className, "dedication");
+}
+
+// =============================================================================
+// MARK: - Font-size Parsing Tests (Task 3)
+// =============================================================================
+
+TEST(CSSTest, ParseFontSizeEm) {
+    auto sheet = CSSStylesheet::parse("p { font-size: 1.17em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    EXPECT_TRUE(sheet.rules[0].properties.fontSize.has_value());
+    EXPECT_FLOAT_EQ(sheet.rules[0].properties.fontSize.value(), 1.17f);
+}
+
+TEST(CSSTest, ParseFontSizeSmaller) {
+    auto sheet = CSSStylesheet::parse("a { font-size: smaller; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    EXPECT_TRUE(sheet.rules[0].properties.fontSize.has_value());
+    EXPECT_FLOAT_EQ(sheet.rules[0].properties.fontSize.value(), 0.833f);
+}
+
+TEST(CSSTest, ParseFontSizeLarger) {
+    auto sheet = CSSStylesheet::parse("p { font-size: larger; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    EXPECT_TRUE(sheet.rules[0].properties.fontSize.has_value());
+    EXPECT_FLOAT_EQ(sheet.rules[0].properties.fontSize.value(), 1.2f);
+}
+
+TEST(CSSTest, ParseFontSizePercent) {
+    auto sheet = CSSStylesheet::parse("p { font-size: 83%; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    EXPECT_TRUE(sheet.rules[0].properties.fontSize.has_value());
+    EXPECT_FLOAT_EQ(sheet.rules[0].properties.fontSize.value(), 0.83f);
+}
+
+TEST(CSSTest, FontSizeMerge) {
+    CSSProperties base;
+    base.fontSize = 1.0f;
+
+    CSSProperties override_props;
+    override_props.fontSize = 1.17f;
+
+    base.merge(override_props);
+    EXPECT_FLOAT_EQ(base.fontSize.value(), 1.17f);
+}
+
+// =============================================================================
+// MARK: - Child Combinator Tests (Task 6)
+// =============================================================================
+
+TEST(CSSTest, ParseChildCombinator) {
+    auto sheet = CSSStylesheet::parse("hgroup > * { font-weight: normal; margin: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Descendant);
+    EXPECT_EQ(rule.selector.element, "*");
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "hgroup");
+    EXPECT_TRUE(rule.selector.isChildCombinator);
+}
+
+TEST(CSSTest, ParseChildCombinatorWithClass) {
+    auto sheet = CSSStylesheet::parse(
+        "section.dedication > * { display: inline-block; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Descendant);
+    EXPECT_EQ(rule.selector.element, "*");
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "section");
+    EXPECT_EQ(rule.selector.parent->className, "dedication");
+    EXPECT_TRUE(rule.selector.isChildCombinator);
+}
+
+TEST(CSSTest, ParseChildCombinatorElement) {
+    auto sheet = CSSStylesheet::parse("section > p { text-indent: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Descendant);
+    EXPECT_EQ(rule.selector.element, "p");
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "section");
+    EXPECT_TRUE(rule.selector.isChildCombinator);
+}
+
+// =============================================================================
+// MARK: - Multi-level Adjacent Sibling Tests (Task 7)
+// =============================================================================
+
+TEST(CSSTest, ParseMultiLevelAdjacentSibling) {
+    auto sheet = CSSStylesheet::parse("h2 + p + p { font-size: 1em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::AdjacentSibling);
+    EXPECT_EQ(rule.selector.element, "p");
+    ASSERT_NE(rule.selector.adjacentSibling, nullptr);
+    EXPECT_EQ(rule.selector.adjacentSibling->element, "p");
+    ASSERT_NE(rule.selector.adjacentSibling->adjacentSibling, nullptr);
+    EXPECT_EQ(rule.selector.adjacentSibling->adjacentSibling->element, "h2");
+}
+
+TEST(CSSTest, ParseTripleLevelAdjacentSibling) {
+    auto sheet = CSSStylesheet::parse("h2 + p + p + p { font-size: .83em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::AdjacentSibling);
+    EXPECT_EQ(rule.selector.element, "p");
+    // Chain: p -> p -> h2
+    auto* sib1 = rule.selector.adjacentSibling.get();
+    ASSERT_NE(sib1, nullptr);
+    EXPECT_EQ(sib1->element, "p");
+    auto* sib2 = sib1->adjacentSibling.get();
+    ASSERT_NE(sib2, nullptr);
+    EXPECT_EQ(sib2->element, "p");
+    auto* sib3 = sib2->adjacentSibling.get();
+    ASSERT_NE(sib3, nullptr);
+    EXPECT_EQ(sib3->element, "h2");
+}
+
+TEST(CSSTest, ParseDescendantWithAdjacentSibling) {
+    auto sheet = CSSStylesheet::parse("hgroup h2 + p { font-size: 1.17em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::AdjacentSibling);
+    EXPECT_EQ(rule.selector.element, "p");
+    ASSERT_NE(rule.selector.adjacentSibling, nullptr);
+    EXPECT_EQ(rule.selector.adjacentSibling->element, "h2");
+    // Descendant context
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "hgroup");
+}
+
+TEST(CSSTest, ParseDescendantWithMultiLevelSibling) {
+    auto sheet = CSSStylesheet::parse("hgroup h2 + p + p { font-size: 1em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::AdjacentSibling);
+    EXPECT_EQ(rule.selector.element, "p");
+    // Sibling chain: p -> h2
+    ASSERT_NE(rule.selector.adjacentSibling, nullptr);
+    EXPECT_EQ(rule.selector.adjacentSibling->element, "p");
+    ASSERT_NE(rule.selector.adjacentSibling->adjacentSibling, nullptr);
+    EXPECT_EQ(rule.selector.adjacentSibling->adjacentSibling->element, "h2");
+    // Parent context
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->element, "hgroup");
+}
+
+// =============================================================================
+// MARK: - ID Selector Tests (Task 8)
+// =============================================================================
+
+TEST(CSSTest, ParseIdSelector) {
+    auto sheet = CSSStylesheet::parse("#chapter-19 { text-align: center; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Id);
+    EXPECT_EQ(rule.selector.id, "chapter-19");
+}
+
+TEST(CSSTest, ParseIdDescendant) {
+    auto sheet = CSSStylesheet::parse("#chapter-19 blockquote { margin: 2em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Descendant);
+    EXPECT_EQ(rule.selector.element, "blockquote");
+    ASSERT_NE(rule.selector.parent, nullptr);
+    EXPECT_EQ(rule.selector.parent->type, SelectorType::Id);
+    EXPECT_EQ(rule.selector.parent->id, "chapter-19");
+}
+
+TEST(CSSTest, ParseCompoundElementId) {
+    auto sheet = CSSStylesheet::parse("section#intro { margin-top: 2em; }");
+    ASSERT_EQ(sheet.rules.size(), 1);
+    auto& rule = sheet.rules[0];
+    EXPECT_EQ(rule.selector.type, SelectorType::Element);
+    EXPECT_EQ(rule.selector.element, "section");
+    EXPECT_EQ(rule.selector.id, "intro");
+}
+
+TEST(CSSTest, IdSpecificity) {
+    auto sheet = CSSStylesheet::parse(
+        "p { text-indent: 1em; }\n"
+        "#special { text-indent: 0; }");
+    ASSERT_EQ(sheet.rules.size(), 2);
+    EXPECT_EQ(sheet.rules[0].selector.specificity(), 1);   // element
+    EXPECT_EQ(sheet.rules[1].selector.specificity(), 100);  // id
 }

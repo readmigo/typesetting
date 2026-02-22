@@ -88,12 +88,14 @@ std::vector<BlockComputedStyle> StyleResolver::resolve(
 
         // 4. Apply each matched rule's properties in order
         float baseFontSize = userStyle.font.size;
+        bool cssFontSizeSet = false;
         for (const auto* rule : matches) {
+            if (rule->properties.fontSize.has_value()) cssFontSizeSet = true;
             applyProperties(rule->properties, style, baseFontSize);
         }
 
         // 5. Apply user overrides as final layer
-        applyUserOverrides(style, userStyle, block);
+        applyUserOverrides(style, userStyle, block, cssFontSizeSet);
 
         result.push_back(std::move(style));
     }
@@ -223,8 +225,42 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
         effectiveTag = blockTypeToTag(block.type);
     }
 
+    // Helper: check if a parent selector matches the block's parent metadata
+    auto parentMatches = [&](const CSSSelector& parentSel) -> bool {
+        if (parentSel.type == SelectorType::Element) {
+            bool match = true;
+            if (!parentSel.element.empty()) {
+                match = iequals(parentSel.element, block.parentTag);
+            }
+            if (match && !parentSel.className.empty()) {
+                match = containsClass(block.parentClassName, parentSel.className);
+            }
+            if (match && !parentSel.id.empty()) {
+                match = (block.parentId == parentSel.id);
+            }
+            return match;
+        } else if (parentSel.type == SelectorType::Class) {
+            return containsClass(block.parentClassName, parentSel.className);
+        } else if (parentSel.type == SelectorType::Attribute) {
+            return containsClass(block.parentEpubType, parentSel.attributeValue);
+        } else if (parentSel.type == SelectorType::Id) {
+            return block.parentId == parentSel.id;
+        } else if (parentSel.type == SelectorType::Universal) {
+            return true;
+        }
+        return false;
+    };
+
     switch (selector.type) {
         case SelectorType::Element:
+            if (!selector.className.empty()) {
+                return iequals(selector.element, effectiveTag) &&
+                       containsClass(block.className, selector.className);
+            }
+            if (!selector.id.empty()) {
+                return iequals(selector.element, effectiveTag) &&
+                       block.id == selector.id;
+            }
             return iequals(selector.element, effectiveTag);
 
         case SelectorType::Class:
@@ -233,12 +269,20 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
         case SelectorType::Descendant: {
             // The main element/class must match the block
             bool mainMatch = false;
-            if (!selector.element.empty()) {
+            if (selector.element == "*") {
+                mainMatch = true;  // Universal match
+            } else if (!selector.element.empty()) {
                 mainMatch = iequals(selector.element, effectiveTag);
             } else if (!selector.className.empty()) {
                 mainMatch = containsClass(block.className, selector.className);
             }
             if (!mainMatch) return false;
+
+            // Check className on main element (compound like p.class in descendant)
+            if (!selector.element.empty() && selector.element != "*" &&
+                !selector.className.empty()) {
+                if (!containsClass(block.className, selector.className)) return false;
+            }
 
             // Check pseudo-class on main element
             if (!selector.pseudoClass.empty()) {
@@ -249,30 +293,35 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
 
             // Parent must match
             if (!selector.parent) return false;
-
-            const auto& parentSel = *selector.parent;
-            if (parentSel.type == SelectorType::Element) {
-                return iequals(parentSel.element, block.parentTag);
-            } else if (parentSel.type == SelectorType::Class) {
-                return containsClass(block.parentClassName, parentSel.className);
-            } else if (parentSel.type == SelectorType::Attribute) {
-                // Check parent's epub:type
-                std::string attrToCheck = block.parentEpubType;
-                return containsClass(attrToCheck, parentSel.attributeValue);
-            }
-            return false;
+            return parentMatches(*selector.parent);
         }
 
         case SelectorType::AdjacentSibling: {
             // Main element matches block's tag
-            if (!iequals(selector.element, effectiveTag)) return false;
-            // Adjacent sibling matches previousSiblingTag
+            if (selector.element != "*" && !iequals(selector.element, effectiveTag)) return false;
             if (!selector.adjacentSibling) return false;
-            return iequals(selector.adjacentSibling->element, block.previousSiblingTag);
+
+            // Walk the adjacent sibling chain against previousSiblingTags
+            const CSSSelector* sib = selector.adjacentSibling.get();
+            size_t sibIdx = 0;
+            while (sib) {
+                if (sibIdx >= block.previousSiblingTags.size()) return false;
+                if (sib->element != "*" &&
+                    !iequals(sib->element, block.previousSiblingTags[sibIdx])) return false;
+                sib = sib->adjacentSibling.get();
+                sibIdx++;
+            }
+
+            // Check descendant context (parent) if present
+            if (selector.parent) {
+                return parentMatches(*selector.parent);
+            }
+            return true;
         }
 
         case SelectorType::PseudoFirstChild: {
             if (!iequals(selector.element, effectiveTag)) return false;
+            if (!selector.className.empty() && !containsClass(block.className, selector.className)) return false;
             return block.isFirstChild;
         }
 
@@ -284,6 +333,9 @@ bool StyleResolver::selectorMatches(const CSSSelector& selector, const Block& bl
 
         case SelectorType::Universal:
             return true;
+
+        case SelectorType::Id:
+            return !selector.id.empty() && block.id == selector.id;
     }
 
     return false;
@@ -324,6 +376,14 @@ void StyleResolver::applyProperties(
         style.font.weight = props.fontWeight.value();
     }
 
+    if (props.fontSize.has_value()) {
+        style.font.size = props.fontSize.value() * baseFontSize;
+    }
+
+    if (props.paddingLeft.has_value()) {
+        style.paddingLeft = props.paddingLeft.value() * baseFontSize;
+    }
+
     if (props.fontVariant.has_value()) {
         if (props.fontVariant.value() == FontVariant::SmallCaps) {
             style.smallCaps = true;
@@ -336,8 +396,15 @@ void StyleResolver::applyProperties(
         style.hyphens = props.hyphens.value();
     }
 
-    if (props.displayNone.has_value() && props.displayNone.value()) {
-        style.hidden = true;
+    if (props.display.has_value()) {
+        if (props.display.value() == "none") {
+            style.display = BlockComputedStyle::Display::None;
+            style.hidden = true;
+        } else if (props.display.value() == "inline-block") {
+            style.display = BlockComputedStyle::Display::InlineBlock;
+        } else if (props.display.value() == "block") {
+            style.display = BlockComputedStyle::Display::Block;
+        }
     }
 
     if (props.hangingPunctuation.has_value()) {
@@ -359,16 +426,16 @@ void StyleResolver::applyProperties(
 }
 
 void StyleResolver::applyUserOverrides(
-    BlockComputedStyle& style, const Style& userStyle, const Block& block) const {
+    BlockComputedStyle& style, const Style& userStyle, const Block& block, bool cssFontSizeSet) const {
 
     // Font family: always override
     style.font.family = userStyle.font.family;
 
-    // Font size: don't override for headings (they should remain proportionally larger)
-    // or for CodeBlock (should remain proportionally smaller).
-    // The base font size was already used in em conversion.
+    // Font size: don't override for headings (they should remain proportionally larger),
+    // CodeBlock (should remain proportionally smaller), Figcaption,
+    // or any block where CSS explicitly set font-size.
     if (!isHeadingType(block.type) && block.type != BlockType::CodeBlock &&
-        block.type != BlockType::Figcaption) {
+        block.type != BlockType::Figcaption && !cssFontSizeSet) {
         style.font.size = userStyle.font.size;
     }
 

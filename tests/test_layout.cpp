@@ -203,10 +203,10 @@ TEST(DocumentTest, ParseSEChapterHTML) {
     EXPECT_EQ(blocks[0].isFirstChild, true);
     // first p after h2
     EXPECT_EQ(blocks[1].htmlTag, "p");
-    EXPECT_EQ(blocks[1].previousSiblingTag, "h2");
+    EXPECT_EQ(blocks[1].previousSiblingTags[0], "h2");
     EXPECT_EQ(blocks[1].isFirstChild, false);
     // second p
-    EXPECT_EQ(blocks[2].previousSiblingTag, "p");
+    EXPECT_EQ(blocks[2].previousSiblingTags[0], "p");
 }
 
 TEST(DocumentTest, ParseClassNames) {
@@ -241,7 +241,8 @@ TEST(DocumentTest, ParseAdjacentSiblingHR) {
     // Find the paragraph after hr
     for (size_t i = 0; i < blocks.size(); ++i) {
         if (blocks[i].type == BlockType::HorizontalRule && i + 1 < blocks.size()) {
-            EXPECT_EQ(blocks[i + 1].previousSiblingTag, "hr");
+            ASSERT_FALSE(blocks[i + 1].previousSiblingTags.empty());
+            EXPECT_EQ(blocks[i + 1].previousSiblingTags[0], "hr");
         }
     }
 }

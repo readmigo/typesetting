@@ -73,6 +73,8 @@ struct BlockComputedStyle {
     TextAlignment alignment = TextAlignment::Justified;
     bool hyphens = true;
     bool smallCaps = false;
+    enum class Display { Block, None, InlineBlock };
+    Display display = Display::Block;
     bool hidden = false;  // display: none
 
     // Spacing
@@ -86,6 +88,7 @@ struct BlockComputedStyle {
     float marginBottom = 0;
     float marginLeft = 0;
     float marginRight = 0;
+    float paddingLeft = 0;
 
     // Advanced typography
     bool oldstyleNums = false;

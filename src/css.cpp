@@ -62,172 +62,216 @@ bool parseNumericValue(const std::string& val, float& number, std::string& unit)
     return true;
 }
 
-/// Parse a single CSS selector string into a CSSSelector
+/// Parse a single CSS selector token (no combinators, no whitespace)
+CSSSelector parseSingleToken(const std::string& t) {
+    if (t.empty()) return {};
+
+    // Attribute selector: [epub|type~="value"]
+    if (t.front() == '[') {
+        CSSSelector result;
+        result.type = SelectorType::Attribute;
+        std::string inner = t.substr(1);
+        if (!inner.empty() && inner.back() == ']') {
+            inner.pop_back();
+        }
+        auto tildeEq = inner.find("~=");
+        auto eq = inner.find('=');
+        if (tildeEq != std::string::npos) {
+            result.attribute = inner.substr(0, tildeEq);
+            std::string attrVal = inner.substr(tildeEq + 2);
+            if (attrVal.size() >= 2 &&
+                (attrVal.front() == '"' || attrVal.front() == '\'')) {
+                attrVal = attrVal.substr(1, attrVal.size() - 2);
+            }
+            result.attributeValue = attrVal;
+        } else if (eq != std::string::npos) {
+            result.attribute = inner.substr(0, eq);
+            std::string attrVal = inner.substr(eq + 1);
+            if (attrVal.size() >= 2 &&
+                (attrVal.front() == '"' || attrVal.front() == '\'')) {
+                attrVal = attrVal.substr(1, attrVal.size() - 2);
+            }
+            result.attributeValue = attrVal;
+        }
+        std::replace(result.attribute.begin(), result.attribute.end(), '|', ':');
+        return result;
+    }
+
+    // Universal selector
+    if (t == "*") {
+        CSSSelector result;
+        result.type = SelectorType::Universal;
+        result.element = "*";
+        return result;
+    }
+
+    // ID selector: #id
+    if (t.front() == '#') {
+        CSSSelector result;
+        result.type = SelectorType::Id;
+        result.id = t.substr(1);
+        return result;
+    }
+
+    // Compound with ID: element#id or .class#id
+    {
+        auto hashPos = t.find('#');
+        if (hashPos != std::string::npos && hashPos > 0) {
+            std::string idPart = t.substr(hashPos + 1);
+            std::string beforeHash = t.substr(0, hashPos);
+            CSSSelector result;
+            result.id = idPart;
+            auto dotPos = beforeHash.find('.');
+            if (dotPos == 0) {
+                result.type = SelectorType::Class;
+                result.className = beforeHash.substr(1);
+            } else if (dotPos != std::string::npos) {
+                result.type = SelectorType::Element;
+                result.element = beforeHash.substr(0, dotPos);
+                result.className = beforeHash.substr(dotPos + 1);
+            } else {
+                result.type = SelectorType::Element;
+                result.element = beforeHash;
+            }
+            return result;
+        }
+    }
+
+    // Compound selector: element.classname or element.classname:pseudo
+    {
+        auto dotPos = t.find('.');
+        if (dotPos != std::string::npos && dotPos > 0) {
+            CSSSelector result;
+            std::string beforeDot = t.substr(0, dotPos);
+            std::string afterDot = t.substr(dotPos + 1);
+
+            auto colonPos = afterDot.find(':');
+            if (colonPos != std::string::npos) {
+                result.type = SelectorType::PseudoFirstChild;
+                result.element = beforeDot;
+                result.className = afterDot.substr(0, colonPos);
+                result.pseudoClass = afterDot.substr(colonPos + 1);
+            } else {
+                result.type = SelectorType::Element;
+                result.element = beforeDot;
+                result.className = afterDot;
+            }
+            return result;
+        }
+    }
+
+    // Pseudo-class: element:first-child
+    auto colonPos = t.find(':');
+    if (colonPos != std::string::npos) {
+        CSSSelector result;
+        result.type = SelectorType::PseudoFirstChild;
+        result.element = t.substr(0, colonPos);
+        result.pseudoClass = t.substr(colonPos + 1);
+        return result;
+    }
+
+    // Class selector: .classname
+    if (t.front() == '.') {
+        CSSSelector result;
+        result.type = SelectorType::Class;
+        result.className = t.substr(1);
+        return result;
+    }
+
+    // Element selector
+    CSSSelector result;
+    result.type = SelectorType::Element;
+    result.element = t;
+    return result;
+}
+
+/// Parse a CSS selector string into a CSSSelector, handling combinators (+, >, space)
 CSSSelector parseSelector(const std::string& selectorStr) {
     std::string sel = trim(selectorStr);
     if (sel.empty()) return {};
 
-    // Check for adjacent sibling combinator: "h2 + p"
-    auto plusPos = sel.find('+');
-    if (plusPos != std::string::npos) {
-        std::string leftStr = trim(sel.substr(0, plusPos));
-        std::string rightStr = trim(sel.substr(plusPos + 1));
-
-        CSSSelector result;
-        result.type = SelectorType::AdjacentSibling;
-        result.element = rightStr;
-
-        auto sibling = std::make_shared<CSSSelector>();
-        sibling->type = SelectorType::Element;
-        sibling->element = leftStr;
-        result.adjacentSibling = sibling;
-        return result;
-    }
-
-    // Check for descendant (space-separated tokens)
     // Tokenize by whitespace
-    std::vector<std::string> tokens;
-    std::istringstream iss(sel);
-    std::string token;
-    while (iss >> token) {
-        tokens.push_back(token);
+    std::vector<std::string> rawTokens;
+    {
+        std::istringstream iss(sel);
+        std::string t;
+        while (iss >> t) rawTokens.push_back(t);
     }
 
-    if (tokens.size() == 1) {
-        // Single token: could be element, class, pseudo, or attribute
-        const auto& t = tokens[0];
-
-        // Attribute selector: [epub|type~="value"]
-        if (t.front() == '[') {
-            CSSSelector result;
-            result.type = SelectorType::Attribute;
-            // Parse attribute: [name~="value"] or [name="value"]
-            std::string inner = t.substr(1);
-            if (!inner.empty() && inner.back() == ']') {
-                inner.pop_back();
-            }
-            // Find operator
-            auto tildeEq = inner.find("~=");
-            auto eq = inner.find('=');
-            if (tildeEq != std::string::npos) {
-                result.attribute = inner.substr(0, tildeEq);
-                std::string attrVal = inner.substr(tildeEq + 2);
-                // Remove quotes
-                if (attrVal.size() >= 2 &&
-                    (attrVal.front() == '"' || attrVal.front() == '\'')) {
-                    attrVal = attrVal.substr(1, attrVal.size() - 2);
-                }
-                result.attributeValue = attrVal;
-            } else if (eq != std::string::npos) {
-                result.attribute = inner.substr(0, eq);
-                std::string attrVal = inner.substr(eq + 1);
-                if (attrVal.size() >= 2 &&
-                    (attrVal.front() == '"' || attrVal.front() == '\'')) {
-                    attrVal = attrVal.substr(1, attrVal.size() - 2);
-                }
-                result.attributeValue = attrVal;
-            }
-            // Convert pipe to colon for namespace: epub|type -> epub:type
-            std::replace(result.attribute.begin(), result.attribute.end(), '|', ':');
-            return result;
-        }
-
-        // Universal selector
-        if (t == "*") {
-            CSSSelector result;
-            result.type = SelectorType::Universal;
-            return result;
-        }
-
-        // Pseudo-class: element:first-child
-        auto colonPos = t.find(':');
-        if (colonPos != std::string::npos) {
-            CSSSelector result;
-            result.type = SelectorType::PseudoFirstChild;
-            result.element = t.substr(0, colonPos);
-            result.pseudoClass = t.substr(colonPos + 1);
-            return result;
-        }
-
-        // Class selector: .classname
-        if (t.front() == '.') {
-            CSSSelector result;
-            result.type = SelectorType::Class;
-            result.className = t.substr(1);
-            return result;
-        }
-
-        // Element selector
-        CSSSelector result;
-        result.type = SelectorType::Element;
-        result.element = t;
-        return result;
+    if (rawTokens.size() == 1) {
+        return parseSingleToken(rawTokens[0]);
     }
 
-    // Multiple tokens: descendant selector (parent child)
-    // The last token is the main element, previous tokens form parent chain
-    CSSSelector result;
-    result.type = SelectorType::Descendant;
-
-    // Parse the last token as the main element
-    const auto& lastToken = tokens.back();
-
-    // Check if last token has pseudo-class
-    auto colonPos = lastToken.find(':');
-    if (colonPos != std::string::npos) {
-        result.element = lastToken.substr(0, colonPos);
-        result.pseudoClass = lastToken.substr(colonPos + 1);
-    } else if (lastToken.front() == '.') {
-        result.className = lastToken.substr(1);
-    } else {
-        result.element = lastToken;
-    }
-
-    // Build parent chain from remaining tokens (right to left)
-    std::shared_ptr<CSSSelector> parentSel;
-    for (int i = static_cast<int>(tokens.size()) - 2; i >= 0; --i) {
-        auto parent = std::make_shared<CSSSelector>();
-        const auto& pt = tokens[i];
-
-        if (pt.front() == '.') {
-            parent->type = SelectorType::Class;
-            parent->className = pt.substr(1);
-        } else if (pt.front() == '[') {
-            parent->type = SelectorType::Attribute;
-            // Simplified attribute parsing for parent
-            std::string inner = pt.substr(1);
-            if (!inner.empty() && inner.back() == ']') inner.pop_back();
-            auto tildeEq = inner.find("~=");
-            auto eq = inner.find('=');
-            if (tildeEq != std::string::npos) {
-                parent->attribute = inner.substr(0, tildeEq);
-                std::string attrVal = inner.substr(tildeEq + 2);
-                if (attrVal.size() >= 2 &&
-                    (attrVal.front() == '"' || attrVal.front() == '\'')) {
-                    attrVal = attrVal.substr(1, attrVal.size() - 2);
-                }
-                parent->attributeValue = attrVal;
-            } else if (eq != std::string::npos) {
-                parent->attribute = inner.substr(0, eq);
-                std::string attrVal = inner.substr(eq + 1);
-                if (attrVal.size() >= 2 &&
-                    (attrVal.front() == '"' || attrVal.front() == '\'')) {
-                    attrVal = attrVal.substr(1, attrVal.size() - 2);
-                }
-                parent->attributeValue = attrVal;
+    // Build parts: non-combinator tokens with their combinator-to-next.
+    // Combinator tokens (+, >) are consumed and applied to the preceding part.
+    struct SelectorPart {
+        std::string token;
+        char combinatorToNext; // '+', '>', ' ', or 0 for last
+    };
+    std::vector<SelectorPart> parts;
+    for (size_t i = 0; i < rawTokens.size(); ++i) {
+        if (rawTokens[i] == "+" || rawTokens[i] == ">") {
+            if (!parts.empty()) {
+                parts.back().combinatorToNext = rawTokens[i][0];
             }
-            std::replace(parent->attribute.begin(), parent->attribute.end(), '|', ':');
         } else {
-            parent->type = SelectorType::Element;
-            parent->element = pt;
+            parts.push_back({rawTokens[i], ' '});
+        }
+    }
+    if (!parts.empty()) parts.back().combinatorToNext = 0;
+
+    if (parts.empty()) return {};
+    if (parts.size() == 1) return parseSingleToken(parts[0].token);
+
+    // Find where the adjacent sibling chain starts (rightmost consecutive '+' group)
+    int siblingChainStart = static_cast<int>(parts.size()) - 1;
+    for (int i = static_cast<int>(parts.size()) - 2; i >= 0; --i) {
+        if (parts[i].combinatorToNext == '+') {
+            siblingChainStart = i;
+        } else {
+            break;
+        }
+    }
+
+    // Parse the main element (rightmost part)
+    CSSSelector result = parseSingleToken(parts.back().token);
+
+    // Build adjacent sibling chain if present
+    if (siblingChainStart < static_cast<int>(parts.size()) - 1) {
+        result.type = SelectorType::AdjacentSibling;
+        std::shared_ptr<CSSSelector>* siblingPtr = &result.adjacentSibling;
+        for (int i = static_cast<int>(parts.size()) - 2; i >= siblingChainStart; --i) {
+            auto sib = std::make_shared<CSSSelector>(parseSingleToken(parts[i].token));
+            *siblingPtr = sib;
+            siblingPtr = &sib->adjacentSibling;
+        }
+    }
+
+    // Build parent/ancestor chain from parts[0..siblingChainStart-1]
+    if (siblingChainStart > 0) {
+        if (result.type != SelectorType::AdjacentSibling) {
+            result.type = SelectorType::Descendant;
+        }
+        int parentIdx = siblingChainStart - 1;
+        auto parent = std::make_shared<CSSSelector>(parseSingleToken(parts[parentIdx].token));
+        result.parent = parent;
+        if (parts[parentIdx].combinatorToNext == '>') {
+            result.isChildCombinator = true;
         }
 
-        if (parentSel) {
-            parent->parent = parentSel;
+        // Build further ancestor chain if multiple ancestor tokens
+        std::shared_ptr<CSSSelector> currentParent = parent;
+        for (int i = parentIdx - 1; i >= 0; --i) {
+            auto pp = std::make_shared<CSSSelector>(parseSingleToken(parts[i].token));
+            currentParent->parent = pp;
+            currentParent = pp;
         }
-        parentSel = parent;
+    } else if (result.type != SelectorType::AdjacentSibling) {
+        // All parts connected by space/> with no '+': pure descendant
+        result.type = SelectorType::Descendant;
+        auto parent = std::make_shared<CSSSelector>(parseSingleToken(parts[0].token));
+        result.parent = parent;
     }
-    result.parent = parentSel;
 
     return result;
 }
@@ -283,11 +327,35 @@ CSSProperties parseProperties(const std::string& block) {
         } else if (property == "font-variant") {
             if (value == "small-caps") props.fontVariant = FontVariant::SmallCaps;
             else if (value == "normal") props.fontVariant = FontVariant::Normal;
+        } else if (property == "font-size") {
+            if (value == "smaller") {
+                props.fontSize = 0.833f;  // ~5/6
+            } else if (value == "larger") {
+                props.fontSize = 1.2f;
+            } else {
+                float num;
+                std::string unit;
+                if (parseNumericValue(value, num, unit)) {
+                    if (unit == "em" || unit == "rem") {
+                        props.fontSize = num;
+                    } else if (unit == "px") {
+                        // Store as em relative to 16px base; actual conversion
+                        // happens in style_resolver using real baseFontSize
+                        props.fontSize = num / 16.0f;
+                    } else if (unit == "%" ) {
+                        props.fontSize = num / 100.0f;
+                    } else if (unit.empty()) {
+                        props.fontSize = num;  // unitless treated as em
+                    }
+                }
+            }
         } else if (property == "hyphens") {
             if (value == "auto") props.hyphens = true;
             else if (value == "none") props.hyphens = false;
         } else if (property == "display") {
-            if (value == "none") props.displayNone = true;
+            if (value == "none" || value == "block" || value == "inline-block") {
+                props.display = value;
+            }
         } else if (property == "hanging-punctuation") {
             if (value == "first" || value == "first last" || value == "last") {
                 props.hangingPunctuation = true;
@@ -360,6 +428,12 @@ CSSProperties parseProperties(const std::string& block) {
             if (parseNumericValue(value, num, unit)) {
                 props.marginRight = num;
             }
+        } else if (property == "padding-left") {
+            float num;
+            std::string unit;
+            if (parseNumericValue(value, num, unit)) {
+                props.paddingLeft = num;
+            }
         } else if (property == "border-top") {
             // border-top: 1px solid ...
             std::istringstream btStream(value);
@@ -403,17 +477,19 @@ int CSSSelector::specificity() const {
     switch (type) {
         case SelectorType::Element:
             elements += 1;
+            if (!className.empty()) classes += 1;
             break;
         case SelectorType::Class:
             classes += 1;
             break;
         case SelectorType::Descendant:
-            if (!element.empty()) elements += 1;
+            if (!element.empty() && element != "*") elements += 1;
             if (!className.empty()) classes += 1;
             if (!pseudoClass.empty()) classes += 1;
             break;
         case SelectorType::AdjacentSibling:
-            if (!element.empty()) elements += 1;
+            if (!element.empty() && element != "*") elements += 1;
+            if (!className.empty()) classes += 1;
             break;
         case SelectorType::PseudoFirstChild:
             if (!element.empty()) elements += 1;
@@ -425,7 +501,13 @@ int CSSSelector::specificity() const {
         case SelectorType::Universal:
             // Universal selector adds 0
             break;
+        case SelectorType::Id:
+            ids += 1;
+            break;
     }
+
+    // ID component adds to specificity regardless of primary type
+    if (!id.empty() && type != SelectorType::Id) ids += 1;
 
     // Add parent specificity
     if (parent) {
@@ -458,8 +540,10 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.fontStyle.has_value()) fontStyle = other.fontStyle;
     if (other.fontWeight.has_value()) fontWeight = other.fontWeight;
     if (other.fontVariant.has_value()) fontVariant = other.fontVariant;
+    if (other.fontSize.has_value()) fontSize = other.fontSize;
     if (other.hyphens.has_value()) hyphens = other.hyphens;
-    if (other.displayNone.has_value()) displayNone = other.displayNone;
+    if (other.display.has_value()) display = other.display;
+    if (other.paddingLeft.has_value()) paddingLeft = other.paddingLeft;
     if (other.hangingPunctuation.has_value()) hangingPunctuation = other.hangingPunctuation;
     if (other.borderTopWidth.has_value()) borderTopWidth = other.borderTopWidth;
     if (other.widthPercent.has_value()) widthPercent = other.widthPercent;

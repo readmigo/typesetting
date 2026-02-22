@@ -23,6 +23,7 @@ struct ParentInfo {
     std::string tag;
     std::string className;
     std::string epubType;
+    std::string id;
     int childBlockCount = 0;  // count of block-level children seen
 };
 
@@ -125,7 +126,8 @@ BlockType tagToBlockType(const std::string& tagName) {
 /// Check if tag is a container-only element (not a block itself)
 bool isContainerTag(const std::string& name) {
     return name == "section" || name == "div" || name == "article" ||
-           name == "figure" || name == "ul" || name == "ol";
+           name == "figure" || name == "ul" || name == "ol" ||
+           name == "hgroup";
 }
 
 /// Check if tag is a block-level element
@@ -159,34 +161,39 @@ std::vector<Block> parseHTML(const std::string& html) {
 
     // Parent tracking for CSS selector matching
     std::vector<ParentInfo> parentStack;
-    // Track the last block's htmlTag at each nesting level for previousSiblingTag
-    // Key: parentStack depth, Value: last htmlTag at that depth
-    std::vector<std::string> lastSiblingTagAtDepth;
+    // Track recent sibling tags at each nesting level for adjacent sibling matching
+    // Key: parentStack depth, Value: recent sibling tags (most recent first, max 5)
+    std::vector<std::vector<std::string>> siblingHistoryAtDepth;
 
     // Helper: populate block metadata from parent stack and sibling tracking
     auto populateBlockMeta = [&](Block& block, const std::string& tagName, const Tag& tag) {
         block.htmlTag = tagName;
         block.className = tag.getAttribute("class");
         block.epubType = tag.getAttribute("epub:type");
+        block.id = tag.getAttribute("id");
 
         if (!parentStack.empty()) {
             auto& parent = parentStack.back();
             block.parentTag = parent.tag;
             block.parentClassName = parent.className;
             block.parentEpubType = parent.epubType;
+            block.parentId = parent.id;
             block.isFirstChild = (parent.childBlockCount == 0);
             parent.childBlockCount++;
         }
 
         size_t depth = parentStack.size();
-        if (depth < lastSiblingTagAtDepth.size()) {
-            block.previousSiblingTag = lastSiblingTagAtDepth[depth];
+        if (depth < siblingHistoryAtDepth.size()) {
+            block.previousSiblingTags = siblingHistoryAtDepth[depth];
         }
-        // Update sibling tracking - ensure vector is large enough
-        if (depth >= lastSiblingTagAtDepth.size()) {
-            lastSiblingTagAtDepth.resize(depth + 1);
+        // Update sibling history - insert new tag at front, limit to 5
+        if (depth >= siblingHistoryAtDepth.size()) {
+            siblingHistoryAtDepth.resize(depth + 1);
         }
-        lastSiblingTagAtDepth[depth] = tagName;
+        siblingHistoryAtDepth[depth].insert(siblingHistoryAtDepth[depth].begin(), tagName);
+        if (siblingHistoryAtDepth[depth].size() > 5) {
+            siblingHistoryAtDepth[depth].pop_back();
+        }
     };
 
     while (pos < html.size()) {
@@ -405,12 +412,13 @@ std::vector<Block> parseHTML(const std::string& html) {
                     pi.tag = tag.name;
                     pi.className = tag.getAttribute("class");
                     pi.epubType = tag.getAttribute("epub:type");
+                    pi.id = tag.getAttribute("id");
                     parentStack.push_back(pi);
                     // Reset sibling tracking for this new depth
-                    if (parentStack.size() >= lastSiblingTagAtDepth.size()) {
-                        lastSiblingTagAtDepth.resize(parentStack.size() + 1);
+                    if (parentStack.size() >= siblingHistoryAtDepth.size()) {
+                        siblingHistoryAtDepth.resize(parentStack.size() + 1);
                     }
-                    lastSiblingTagAtDepth[parentStack.size()] = "";
+                    siblingHistoryAtDepth[parentStack.size()].clear();
                 } else {
                     // Flush any open block before leaving a container
                     if (inBlock && !currentBlock.inlines.empty()) {
@@ -442,11 +450,12 @@ std::vector<Block> parseHTML(const std::string& html) {
                     pi.tag = tag.name;
                     pi.className = tag.getAttribute("class");
                     pi.epubType = tag.getAttribute("epub:type");
+                    pi.id = tag.getAttribute("id");
                     parentStack.push_back(pi);
-                    if (parentStack.size() >= lastSiblingTagAtDepth.size()) {
-                        lastSiblingTagAtDepth.resize(parentStack.size() + 1);
+                    if (parentStack.size() >= siblingHistoryAtDepth.size()) {
+                        siblingHistoryAtDepth.resize(parentStack.size() + 1);
                     }
-                    lastSiblingTagAtDepth[parentStack.size()] = "";
+                    siblingHistoryAtDepth[parentStack.size()].clear();
                 }
 
                 pos = nextPos;

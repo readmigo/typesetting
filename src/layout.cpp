@@ -337,9 +337,9 @@ private:
                 cursorY += bstyle.marginTop;
             }
 
-            // Available width accounting for block margins
-            float availableWidth = contentWidth - bstyle.marginLeft - bstyle.marginRight;
-            float blockOffsetX = bstyle.marginLeft;
+            // Available width accounting for block margins and padding
+            float availableWidth = contentWidth - bstyle.marginLeft - bstyle.marginRight - bstyle.paddingLeft;
+            float blockOffsetX = bstyle.marginLeft + bstyle.paddingLeft;
 
             // Layout text into lines
             std::vector<Line> lines = layoutBlockLines(block, bstyle, availableWidth, blockIdx);
@@ -436,7 +436,7 @@ private:
 
         // Apply text indent on first line
         float effectiveWidth = availableWidth;
-        if (isFirstLine && bstyle.textIndent > 0) {
+        if (isFirstLine && bstyle.textIndent != 0) {
             lineX = bstyle.textIndent;
             effectiveWidth = availableWidth - bstyle.textIndent;
         }

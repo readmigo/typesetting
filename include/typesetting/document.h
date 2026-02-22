@@ -91,8 +91,10 @@ struct Block {
     std::string parentTag;                // Parent element's tag name
     std::string parentClassName;          // Parent element's class
     std::string parentEpubType;           // Parent element's epub:type
+    std::string parentId;                 // Parent element's id attribute
     bool isFirstChild = true;             // Is this the first block-child of its parent?
-    std::string previousSiblingTag;       // Previous sibling block's htmlTag (for h2+p selector)
+    std::vector<std::string> previousSiblingTags;  // Previous sibling tags [0]=immediate, [1]=before that, etc.
+    std::string id;                       // HTML id attribute
 
     /// Helper: get concatenated plain text from all inlines
     std::string plainText() const {
