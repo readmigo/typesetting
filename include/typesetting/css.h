@@ -65,6 +65,8 @@ struct CSSProperties {
     std::optional<float> borderTopWidth;   // in px
     std::optional<float> widthPercent;     // percentage (0-100)
     std::optional<float> maxWidthPercent;   // percentage (0-100)
+    std::optional<bool> marginLeftAuto;    // true if margin-left is "auto"
+    std::optional<bool> marginRightAuto;   // true if margin-right is "auto"
 
     /// Merge another set of properties into this one (other overrides)
     void merge(const CSSProperties& other);

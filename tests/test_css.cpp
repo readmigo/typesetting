@@ -510,3 +510,29 @@ TEST(CSSTest, ParseMaxWidthPercent) {
     EXPECT_TRUE(props.maxWidthPercent.has_value());
     EXPECT_FLOAT_EQ(props.maxWidthPercent.value(), 70.0f);
 }
+
+TEST(CSSTest, ParseMarginAutoShorthand) {
+    auto sheet = CSSStylesheet::parse("p { margin: 1em auto; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_FLOAT_EQ(props.marginTop.value_or(-1), 1.0f);
+    EXPECT_FLOAT_EQ(props.marginBottom.value_or(-1), 1.0f);
+    EXPECT_TRUE(props.marginLeftAuto.value_or(false));
+    EXPECT_TRUE(props.marginRightAuto.value_or(false));
+}
+
+TEST(CSSTest, ParseMarginLeftAuto) {
+    auto sheet = CSSStylesheet::parse("p { margin-left: auto; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.marginLeftAuto.value_or(false));
+    EXPECT_FALSE(props.marginLeft.has_value());
+}
+
+TEST(CSSTest, ParseMarginRightAuto) {
+    auto sheet = CSSStylesheet::parse("p { margin-right: auto; }");
+    ASSERT_GE(sheet.rules.size(), 1);
+    auto& props = sheet.rules[0].properties;
+    EXPECT_TRUE(props.marginRightAuto.value_or(false));
+    EXPECT_FALSE(props.marginRight.has_value());
+}

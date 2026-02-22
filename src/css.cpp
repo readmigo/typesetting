@@ -363,46 +363,67 @@ CSSProperties parseProperties(const std::string& block) {
                 props.hangingPunctuation = false;
             }
         } else if (property == "margin") {
-            // Margin shorthand: 1-4 values
-            std::vector<float> values;
+            // Margin shorthand: 1-4 values, with "auto" keyword support
+            struct MarginVal { float num; bool isAuto; };
+            std::vector<MarginVal> values;
             std::istringstream valStream(value);
             std::string part;
             while (valStream >> part) {
-                // Skip "auto" keyword
                 if (part == "auto") {
-                    values.push_back(0.0f);
-                    continue;
-                }
-                float num;
-                std::string unit;
-                if (parseNumericValue(part, num, unit)) {
-                    values.push_back(num);
+                    values.push_back({0.0f, true});
+                } else {
+                    float num;
+                    std::string unit;
+                    if (parseNumericValue(part, num, unit)) {
+                        values.push_back({num, false});
+                    }
                 }
             }
             if (values.size() == 1) {
-                // margin: X -> all sides
-                props.marginTop = values[0];
-                props.marginRight = values[0];
-                props.marginBottom = values[0];
-                props.marginLeft = values[0];
+                props.marginTop = values[0].num;
+                props.marginRight = values[0].num;
+                props.marginBottom = values[0].num;
+                props.marginLeft = values[0].num;
             } else if (values.size() == 2) {
                 // margin: Y X -> top/bottom=Y, left/right=X
-                props.marginTop = values[0];
-                props.marginBottom = values[0];
-                props.marginRight = values[1];
-                props.marginLeft = values[1];
+                props.marginTop = values[0].isAuto ? 0.0f : values[0].num;
+                props.marginBottom = values[0].isAuto ? 0.0f : values[0].num;
+                if (values[1].isAuto) {
+                    props.marginLeftAuto = true;
+                    props.marginRightAuto = true;
+                    props.marginLeft = 0.0f;
+                    props.marginRight = 0.0f;
+                } else {
+                    props.marginRight = values[1].num;
+                    props.marginLeft = values[1].num;
+                }
             } else if (values.size() == 3) {
-                // margin: T X B
-                props.marginTop = values[0];
-                props.marginRight = values[1];
-                props.marginLeft = values[1];
-                props.marginBottom = values[2];
+                props.marginTop = values[0].isAuto ? 0.0f : values[0].num;
+                if (values[1].isAuto) {
+                    props.marginLeftAuto = true;
+                    props.marginRightAuto = true;
+                    props.marginLeft = 0.0f;
+                    props.marginRight = 0.0f;
+                } else {
+                    props.marginRight = values[1].num;
+                    props.marginLeft = values[1].num;
+                }
+                props.marginBottom = values[2].isAuto ? 0.0f : values[2].num;
             } else if (values.size() >= 4) {
-                // margin: T R B L
-                props.marginTop = values[0];
-                props.marginRight = values[1];
-                props.marginBottom = values[2];
-                props.marginLeft = values[3];
+                props.marginTop = values[0].isAuto ? 0.0f : values[0].num;
+                if (values[1].isAuto) {
+                    props.marginRightAuto = true;
+                    props.marginRight = 0.0f;
+                } else {
+                    props.marginRight = values[1].num;
+                }
+                props.marginBottom = values[2].isAuto ? 0.0f : values[2].num;
+                if (values[3].isAuto) {
+                    props.marginLeftAuto = true;
+                    props.marginLeft = 0.0f;
+                } else {
+                    props.marginLeft = values[3].num;
+                }
             }
         } else if (property == "margin-top") {
             float num;
@@ -417,16 +438,24 @@ CSSProperties parseProperties(const std::string& block) {
                 props.marginBottom = num;
             }
         } else if (property == "margin-left") {
-            float num;
-            std::string unit;
-            if (parseNumericValue(value, num, unit)) {
-                props.marginLeft = num;
+            if (value == "auto") {
+                props.marginLeftAuto = true;
+            } else {
+                float num;
+                std::string unit;
+                if (parseNumericValue(value, num, unit)) {
+                    props.marginLeft = num;
+                }
             }
         } else if (property == "margin-right") {
-            float num;
-            std::string unit;
-            if (parseNumericValue(value, num, unit)) {
-                props.marginRight = num;
+            if (value == "auto") {
+                props.marginRightAuto = true;
+            } else {
+                float num;
+                std::string unit;
+                if (parseNumericValue(value, num, unit)) {
+                    props.marginRight = num;
+                }
             }
         } else if (property == "padding-left") {
             float num;
@@ -574,6 +603,8 @@ void CSSProperties::merge(const CSSProperties& other) {
     if (other.borderTopWidth.has_value()) borderTopWidth = other.borderTopWidth;
     if (other.widthPercent.has_value()) widthPercent = other.widthPercent;
     if (other.maxWidthPercent.has_value()) maxWidthPercent = other.maxWidthPercent;
+    if (other.marginLeftAuto.has_value()) marginLeftAuto = other.marginLeftAuto;
+    if (other.marginRightAuto.has_value()) marginRightAuto = other.marginRightAuto;
 }
 
 // --- CSSStylesheet ---
